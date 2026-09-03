@@ -1,0 +1,2 @@
+"""DeskAtlas FastAPI application."""
+

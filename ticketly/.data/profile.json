@@ -1,0 +1,67 @@
+{
+  "project": "DeskAtlas",
+  "summary": "An intranet platform for visualizing graduate study-room seats, accepting student seat applications, and managing approvals, assignments, room layouts, and legacy spreadsheet data.",
+  "archetype": "internal-tool",
+  "stack": {
+    "frontend": [
+      "Next.js",
+      "TypeScript",
+      "React Konva"
+    ],
+    "backend": [
+      "FastAPI",
+      "Python 3.11"
+    ],
+    "database": [
+      "PostgreSQL"
+    ],
+    "infra": [
+      "pnpm",
+      "project-local .venv",
+      "intranet deployment"
+    ],
+    "other": [
+      "SMTP"
+    ]
+  },
+  "architecture": {
+    "notes": "A single repository exposes pnpm dev as the development entry point, running the Next.js frontend and the FastAPI backend together. PostgreSQL is the source of truth; students use the public intranet interface without accounts, while one administrator authenticates from environment-configured credentials.",
+    "components": [
+      {
+        "name": "Student web interface",
+        "description": "Shows published room layouts and lists, exposes occupant names, and accepts seat applications without student login."
+      },
+      {
+        "name": "Administrator web interface",
+        "description": "Reviews applications, manages assignments and reference data, edits room layouts, imports legacy data, and configures SMTP."
+      },
+      {
+        "name": "Floor-plan editor",
+        "description": "Provides a constrained drag-and-drop seat-map editor with generated seat grids and simple room fixtures instead of CAD tools."
+      },
+      {
+        "name": "FastAPI service",
+        "description": "Enforces application, approval, assignment, authentication, import, audit, and email-delivery rules."
+      },
+      {
+        "name": "PostgreSQL database",
+        "description": "Stores rooms, seats, layouts, student records, applications, assignments, settings, delivery records, and audit history."
+      },
+      {
+        "name": "SMTP integration",
+        "description": "Sends approval outcomes using administrator-configured server settings and records delivery attempts."
+      }
+    ]
+  },
+  "prefixes": [
+    { "prefix": "ARC", "domain": "Architecture and core rules" },
+    { "prefix": "INF", "domain": "Local environment and intranet deployment" },
+    { "prefix": "DB", "domain": "Database and migrations" },
+    { "prefix": "AUTH", "domain": "Administrator authentication" },
+    { "prefix": "API", "domain": "Backend API and business workflows" },
+    { "prefix": "WEB", "domain": "Student and administrator web interfaces" },
+    { "prefix": "INT", "domain": "Spreadsheet import and SMTP integration" },
+    { "prefix": "QA", "domain": "Testing and quality" },
+    { "prefix": "REL", "domain": "Release and operations" }
+  ]
+}
