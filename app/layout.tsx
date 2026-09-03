@@ -10,7 +10,8 @@ export const metadata: Metadata = {
 
 const themeScript = `
 try {
-  const mode = localStorage.getItem('deskatlas-theme') || 'system';
+  const saved = localStorage.getItem('deskatlas-theme');
+  const mode = saved === 'day' || saved === 'night' ? saved : 'system';
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   document.documentElement.dataset.themeMode = mode;
   document.documentElement.dataset.theme = mode === 'system' ? (dark ? 'night' : 'day') : mode;
@@ -25,4 +26,3 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     </html>
   );
 }
-

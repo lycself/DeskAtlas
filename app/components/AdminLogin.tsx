@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowRight, CircleAlert, KeyRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, CircleAlert, KeyRound } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
@@ -33,8 +34,11 @@ export function AdminLogin() {
     <main className="login-shell">
       <div className="login-orb one" /><div className="login-orb two" />
       <header className="login-header">
-        <Brand />
-        <ThemeToggle />
+        <Brand href="/" />
+        <div className="login-header-actions">
+          <Link className="back-home-link" href="/"><ArrowLeft size={16} />返回首页</Link>
+          <ThemeToggle />
+        </div>
       </header>
       <section className="login-panel glass-surface">
         <span className="login-symbol"><KeyRound /></span>

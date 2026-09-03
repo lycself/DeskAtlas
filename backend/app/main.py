@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .importer import preview_workbook
+from .layout_utils import repair_imported_equipment
 from .mailer import create_delivery, deliver, encrypt_secret
 from .models import (
     Application,
@@ -1030,8 +1031,9 @@ def import_commit(payload: ImportCommit, db: Db, _: Admin) -> dict[str, Any]:
         for room_id, layout in room_layouts.items():
             room = db.get(Room, room_id)
             if room:
-                room.draft_layout = layout
-                room.published_layout = copy.deepcopy(layout)
+                repaired, _ = repair_imported_equipment(layout, room.canvas_width, room.canvas_height)
+                room.draft_layout = repaired
+                room.published_layout = copy.deepcopy(repaired)
                 room.is_published = True
                 room.published_at = utcnow()
         audit(db, "import.committed", "import", None, after=dict(counts))

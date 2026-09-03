@@ -5,6 +5,7 @@ import {
   Building2,
   Check,
   ChevronDown,
+  ChevronUp,
   CircleAlert,
   LayoutGrid,
   List,
@@ -14,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
@@ -50,29 +51,47 @@ const emptyForm: ApplicationForm = {
   major_id: "",
 };
 
-function RoomStrip({ rooms, selected, onSelect }: { rooms: Room[]; selected?: Room; onSelect: (room: Room) => void }) {
+function RoomPicker({ rooms, selected, onSelect }: { rooms: Room[]; selected?: Room; onSelect: (room: Room) => void }) {
   const groups = groupRoomsByFloor(rooms);
+  const selectedFloor = selected ? getFloorLabel(selected) : groups[0]?.floor;
+  const floorRooms = groups.find((group) => group.floor === selectedFloor)?.rooms ?? [];
+
   return (
-    <div className="room-directory" aria-label="按楼层选择房间">
-      {groups.map((group) => (
-        <section className="floor-room-group" key={group.floor}>
-          <h2>{group.floor}</h2>
-          <div className="room-strip" role="list" aria-label={`${group.floor}房间列表`}>
-            {group.rooms.map((room) => (
-              <button
-                type="button"
-                role="listitem"
-                className={`room-tab ${selected?.id === room.id ? "active" : ""}`}
-                key={room.id}
-                onClick={() => onSelect(room)}
-              >
-                <span>{room.name}</span>
-                <small>{room.seat_counts.available ?? 0} 个空位</small>
-              </button>
-            ))}
-          </div>
-        </section>
-      ))}
+    <div className="room-picker" aria-label="先选择楼层，再选择教室">
+      <section className="picker-row">
+        <h2><span>1</span>选择楼层</h2>
+        <div className="floor-strip" role="list" aria-label="楼层列表">
+          {groups.map((group) => (
+            <button
+              type="button"
+              role="listitem"
+              className={`floor-tab ${selectedFloor === group.floor ? "active" : ""}`}
+              key={group.floor}
+              onClick={() => onSelect(group.rooms[0])}
+            >
+              <strong>{group.floor}</strong>
+              <small>{group.rooms.length} 个教室</small>
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="picker-row room-picker-row">
+        <h2><span>2</span>选择教室</h2>
+        <div className="room-strip" role="list" aria-label={`${selectedFloor ?? "当前楼层"}教室列表`}>
+          {floorRooms.map((room) => (
+            <button
+              type="button"
+              role="listitem"
+              className={`room-tab ${selected?.id === room.id ? "active" : ""}`}
+              key={room.id}
+              onClick={() => onSelect(room)}
+            >
+              <span>{room.name}</span>
+              <small>{room.seat_counts.available ?? 0} 个空位</small>
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -82,6 +101,8 @@ export function StudentPortal() {
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   const [view, setView] = useState<"map" | "list">("map");
   const [selectedItem, setSelectedItem] = useState<LayoutItem | null>(null);
+  const [expandedListItemId, setExpandedListItemId] = useState<string | null>(null);
+  const [topbarScrolled, setTopbarScrolled] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -107,6 +128,13 @@ export function StudentPortal() {
 
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    const updateTopbar = () => setTopbarScrolled(window.scrollY > 24);
+    updateTopbar();
+    window.addEventListener("scroll", updateTopbar, { passive: true });
+    return () => window.removeEventListener("scroll", updateTopbar);
   }, []);
 
   const selectedRoom = data?.rooms.find((room) => room.id === selectedRoomId);
@@ -157,7 +185,7 @@ export function StudentPortal() {
 
   return (
     <main className="student-shell">
-      <header className="topbar glass-surface">
+      <header className={`topbar ${topbarScrolled ? "is-scrolled" : ""}`}>
         <Brand />
         <nav className="public-navigation" aria-label="主导航">
           <a href="#workspace">工位地图</a>
@@ -193,7 +221,7 @@ export function StudentPortal() {
         </div>
       ) : (
         <>
-          <RoomStrip rooms={data.rooms} selected={selectedRoom} onSelect={(room) => { setSelectedRoomId(room.id); setSelectedItem(null); }} />
+          <RoomPicker rooms={data.rooms} selected={selectedRoom} onSelect={(room) => { setSelectedRoomId(room.id); setSelectedItem(null); setExpandedListItemId(null); }} />
           {selectedRoom && (
             <section className="workspace-frame" id="workspace">
               <div className="workspace-toolbar glass-surface">
@@ -221,19 +249,58 @@ export function StudentPortal() {
                 <SeatMap room={selectedRoom} selectedId={selectedItem?.id} onSelect={openSeat} />
               ) : (
                 <div className="seat-table-wrap">
-                  <table className="data-table">
+                  <table className="data-table public-seat-table">
                     <thead><tr><th>工位</th><th>状态</th><th>使用人</th><th>导师</th><th>专业</th><th /></tr></thead>
                     <tbody>
-                      {seats.map((item) => (
-                        <tr key={item.id}>
-                          <td className="seat-code">{item.label}</td>
-                          <td><span className={`state-label ${item.seat!.display_state}`}><i />{labels[item.seat!.display_state]}</span></td>
-                          <td>{item.seat!.occupant?.name ?? "—"}</td>
-                          <td>{item.seat!.occupant?.adviser ?? "—"}</td>
-                          <td>{item.seat!.occupant?.major ?? "—"}</td>
-                          <td><button className="row-action" onClick={() => openSeat(item)}>查看</button></td>
-                        </tr>
-                      ))}
+                      {seats.map((item) => {
+                        const expanded = expandedListItemId === item.id;
+                        const occupant = item.seat!.occupant;
+                        return (
+                          <Fragment key={item.id}>
+                            <tr
+                              className={`public-seat-row ${expanded ? "selected" : ""}`}
+                              tabIndex={0}
+                              aria-expanded={expanded}
+                              onClick={() => setExpandedListItemId(expanded ? null : item.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setExpandedListItemId(expanded ? null : item.id);
+                                }
+                              }}
+                            >
+                              <td className="seat-code">{item.label}</td>
+                              <td><span className={`state-label ${item.seat!.display_state}`}><i />{labels[item.seat!.display_state]}</span></td>
+                              <td>{occupant?.name ?? "—"}</td>
+                              <td>{occupant?.adviser ?? "—"}</td>
+                              <td>{occupant?.major ?? "—"}</td>
+                              <td className="row-chevron" aria-hidden>{expanded ? <ChevronUp /> : <ChevronDown />}</td>
+                            </tr>
+                            {expanded && (
+                              <tr className="public-seat-expanded-row">
+                                <td colSpan={6}>
+                                  {occupant ? (
+                                    <div className="inline-seat-detail">
+                                      <div className="inline-seat-heading"><span className={`state-icon ${item.seat!.display_state}`}>{item.label}</span><div><small>{selectedRoom.name}</small><strong>{occupant.name}</strong></div></div>
+                                      <dl>
+                                        <div><dt>导师</dt><dd>{occupant.adviser || "未填写"}</dd></div>
+                                        <div><dt>年级</dt><dd>{occupant.enrollment_year || "未填写"}</dd></div>
+                                        <div><dt>培养层次</dt><dd>{occupant.program_level || "未填写"}</dd></div>
+                                        <div><dt>专业</dt><dd>{occupant.major || "未填写"}</dd></div>
+                                      </dl>
+                                    </div>
+                                  ) : (
+                                    <div className="inline-seat-status">
+                                      <div><strong>工位 {item.label}</strong><p>{item.seat!.display_state === "available" ? "当前可以申请这个工位。" : item.seat!.note || "这个工位目前不可申请。"}</p></div>
+                                      {item.seat!.display_state === "available" && <button className="primary-action compact" onClick={() => openSeat(item)}>申请这个工位 <ArrowRight size={15} /></button>}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from backend.app.importer import preview_workbook
+from backend.app.layout_utils import repair_imported_equipment
 from backend.app.main import app
 from backend.app.schemas import ApplicationCreate, allowed_years
 
@@ -56,6 +57,17 @@ def test_import_preview_flags_legacy_variants_and_equipment() -> None:
     assert preview["rows"][0]["enrollment_year"] == 2024
     assert preview["rows"][0]["program_level"] == "硕士"
     assert preview["rows"][1]["kind"] == "equipment"
+
+
+def test_imported_equipment_overlap_is_repaired() -> None:
+    layout = [
+        {"id": "seat-10", "type": "seat", "label": "10", "x": 48, "y": 130, "width": 76, "height": 48, "rotation": 0},
+        {"id": "import-equipment-2-32", "type": "equipment", "label": "打印机", "x": 40, "y": 122, "width": 82, "height": 52, "rotation": 0},
+    ]
+    repaired, changed = repair_imported_equipment(layout, 960, 620)
+    assert changed is True
+    assert repaired[1]["y"] > repaired[0]["y"] + repaired[0]["height"]
+    assert layout[1]["y"] == 122
 
 
 def test_application_lock_and_rejection_release() -> None:

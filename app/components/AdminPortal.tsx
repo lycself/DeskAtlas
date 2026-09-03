@@ -3,6 +3,7 @@
 import {
   Activity,
   FileSpreadsheet,
+  House,
   LayoutDashboard,
   LogOut,
   Map,
@@ -13,6 +14,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -80,8 +82,11 @@ export function AdminPortal() {
           })}
         </nav>
         <div className="sidebar-footer">
-          <ThemeToggle />
-          <button onClick={logout} title="退出登录"><LogOut size={17} /><span>退出登录</span></button>
+          <Link className="sidebar-home" href="/" title="返回首页"><House size={17} /><span>返回首页</span></Link>
+          <div className="sidebar-footer-actions">
+            <ThemeToggle />
+            <button onClick={logout} title="退出登录"><LogOut size={17} /><span>退出登录</span></button>
+          </div>
         </div>
       </aside>
       {navOpen && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setNavOpen(false)} />}
@@ -98,6 +103,7 @@ export function AdminPortal() {
           </nav>
           <strong className="mobile-section-title">{currentSection?.label}</strong>
           <div className="admin-topbar-actions">
+            <Link className="admin-home-link" href="/" aria-label="返回首页" title="返回首页"><House size={17} /></Link>
             <ThemeToggle />
             <button className="topbar-logout" onClick={logout} aria-label="退出登录" title="退出登录"><LogOut size={17} /></button>
           </div>
