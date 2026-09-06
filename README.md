@@ -8,7 +8,7 @@ DeskAtlas 是部署在内网的研究生工位可视化、申请与管理平台�
 - FastAPI + Python 3.11：业务 API
 - PostgreSQL：房间、工位、申请、分配历史、设置与审计
 - React Konva：非 CAD 的拖放式工位图编辑器
-- pnpm：唯一 JavaScript 包管理器，`pnpm dev` 同时启动前后端
+- pnpm：唯一 JavaScript 包管理器，`pnpm dev` 统一管理本地数据库与前后端
 
 ## 本地运行
 
@@ -26,13 +26,23 @@ pnpm install
 pnpm admin:hash
 ```
 
-将输出填入 `ADMIN_PASSWORD_HASH`。如果没有现成 PostgreSQL，可以启动项目自带的开发数据库（主机端口为 `55432`，此时同步修改 `.env` 中的端口）：
+将输出填入 `ADMIN_PASSWORD_HASH`。本机已有 Homebrew PostgreSQL 17 和项目数据库时，日常开发只需：
+
+```bash
+pnpm dev
+```
+
+脚本读取 `.env`，自动启动本机 `5432` 端口的 PostgreSQL，确认数据库和 API 就绪后启动前端。在同一个终端按 `Ctrl+C`，前端、后端及本次启动的数据库会一起关闭，数据保留。启动失败时也会清理已启动的服务；重复运行会提示先关闭已有进程。
+
+默认识别 Apple Silicon / Intel Mac 的 Homebrew PostgreSQL 17。其他安装位置可通过环境变量 `DESKATLAS_PGDATA` 和 `DESKATLAS_PG_CTL` 指定已有数据目录和 `pg_ctl` 路径。脚本不会初始化或覆盖数据库；启动前已经运行的数据库、外部数据库会复用，退出时保留。
+
+如果没有现成 PostgreSQL，可以启动项目自带的 Docker 开发数据库（需要先启动 Docker，主机端口为 `55432`，此时同步修改 `.env` 中的端口；该方式的数据库仍由 `pnpm db:up` / `pnpm db:down` 单独管理）：
 
 ```bash
 pnpm db:up
 ```
 
-完成数据库配置后运行迁移并启动应用：
+首次配置数据库或更新数据库结构后，需要在数据库运行时执行 `pnpm db:migrate`。Docker 方式的启动顺序为：
 
 ```bash
 pnpm db:migrate

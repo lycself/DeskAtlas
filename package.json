@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.32.1",
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail --names web,api --prefix-colors cyan,magenta \"pnpm dev:web\" \"pnpm dev:api\"",
+    "dev": ".venv/bin/python scripts/dev.py",
     "dev:web": "next dev",
     "dev:api": ".venv/bin/python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000",
     "build": "next build",
@@ -36,4 +36,3 @@
     "typescript": "5.9.3"
   }
 }
-
