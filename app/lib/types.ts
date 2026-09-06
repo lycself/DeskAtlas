@@ -19,7 +19,7 @@ export type SeatInfo = {
 
 export type LayoutItem = {
   id: string;
-  type: "seat" | "door" | "window" | "aisle" | "column" | "equipment" | "label";
+  type: "seat" | "door" | "window" | "aisle" | "column" | "equipment" | "label" | "wall";
   label: string;
   x: number;
   y: number;
@@ -35,6 +35,7 @@ export type Room = {
   building?: string | null;
   floor?: string | null;
   description?: string | null;
+  major_names?: string[];
   canvas_width: number;
   canvas_height: number;
   is_published: boolean;
@@ -98,4 +99,3 @@ export type Student = {
     note?: string | null;
   }>;
 };
-

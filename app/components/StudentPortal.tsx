@@ -14,15 +14,14 @@ import {
   Search,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
 import type { Bootstrap, LayoutItem, Room, SeatState } from "@/app/lib/types";
-import { Brand } from "./Brand";
-import { SeatMap } from "./SeatMap";
-import { ThemeToggle } from "./ThemeToggle";
+import { RoomPlan } from "./RoomPlan";
+import { PublicHeader } from "./PublicHeader";
+import { MajorTags } from "./MajorTags";
 
 const labels: Record<SeatState, string> = {
   available: "可申请",
@@ -51,48 +50,57 @@ const emptyForm: ApplicationForm = {
   major_id: "",
 };
 
-function RoomPicker({ rooms, selected, onSelect }: { rooms: Room[]; selected?: Room; onSelect: (room: Room) => void }) {
+function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorChange }: {
+  rooms: Room[]; allRooms: Room[]; selected?: Room; onSelect: (room: Room) => void;
+  majorFilter: string; onMajorChange: (major: string) => void;
+}) {
   const groups = groupRoomsByFloor(rooms);
   const selectedFloor = selected ? getFloorLabel(selected) : groups[0]?.floor;
   const floorRooms = groups.find((group) => group.floor === selectedFloor)?.rooms ?? [];
 
   return (
-    <div className="room-picker" aria-label="先选择楼层，再选择教室">
+    <aside className="room-picker" aria-label="选择房间">
+      <div className="directory-heading"><Building2 size={17} /><strong>房间列表</strong><span>{rooms.length}</span></div>
+      <label className="major-filter"><span>所属专业</span><select aria-label="所属专业" value={majorFilter} onChange={(event) => onMajorChange(event.target.value)}>
+        <option value="">全部专业</option>
+        {[...new Set(allRooms.flatMap((room) => room.major_names ?? []))].sort((a, b) => a.localeCompare(b, "zh-CN")).map((major) => <option key={major} value={major}>{major}（{allRooms.filter((room) => room.major_names?.includes(major)).length}）</option>)}
+      </select></label>
       <section className="picker-row">
-        <h2><span>1</span>选择楼层</h2>
-        <div className="floor-strip" role="list" aria-label="楼层列表">
+        <h2>楼层</h2>
+        <div className="floor-strip" role="group" aria-label="楼层列表">
           {groups.map((group) => (
             <button
               type="button"
-              role="listitem"
+              aria-pressed={selectedFloor === group.floor}
               className={`floor-tab ${selectedFloor === group.floor ? "active" : ""}`}
               key={group.floor}
               onClick={() => onSelect(group.rooms[0])}
             >
               <strong>{group.floor}</strong>
-              <small>{group.rooms.length} 个教室</small>
             </button>
           ))}
         </div>
       </section>
       <section className="picker-row room-picker-row">
-        <h2><span>2</span>选择教室</h2>
-        <div className="room-strip" role="list" aria-label={`${selectedFloor ?? "当前楼层"}教室列表`}>
+        <h2>房间 <small>{floorRooms.length} 间</small></h2>
+        <div className="room-strip" role="group" aria-label={`${selectedFloor ?? "当前楼层"}教室列表`}>
           {floorRooms.map((room) => (
             <button
               type="button"
-              role="listitem"
+              aria-pressed={selected?.id === room.id}
               className={`room-tab ${selected?.id === room.id ? "active" : ""}`}
               key={room.id}
               onClick={() => onSelect(room)}
             >
               <span>{room.name}</span>
-              <small>{room.seat_counts.available ?? 0} 个空位</small>
+              <div className="room-tab-majors"><MajorTags names={room.major_names} compact /></div>
+              <small className={room.seat_counts.available ? "has-vacancy" : ""}><i />{room.seat_counts.available ? `${room.seat_counts.available} 空位` : "暂无空位"}</small>
             </button>
           ))}
         </div>
       </section>
-    </div>
+      <div className="directory-footnote"><span className="state-dot available" />房间下方标注可申请工位数</div>
+    </aside>
   );
 }
 
@@ -102,7 +110,7 @@ export function StudentPortal() {
   const [view, setView] = useState<"map" | "list">("map");
   const [selectedItem, setSelectedItem] = useState<LayoutItem | null>(null);
   const [expandedListItemId, setExpandedListItemId] = useState<string | null>(null);
-  const [topbarScrolled, setTopbarScrolled] = useState(false);
+  const [majorFilter, setMajorFilter] = useState("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -130,14 +138,17 @@ export function StudentPortal() {
     void load();
   }, []);
 
-  useEffect(() => {
-    const updateTopbar = () => setTopbarScrolled(window.scrollY > 24);
-    updateTopbar();
-    window.addEventListener("scroll", updateTopbar, { passive: true });
-    return () => window.removeEventListener("scroll", updateTopbar);
-  }, []);
-
   const selectedRoom = data?.rooms.find((room) => room.id === selectedRoomId);
+  const filteredRooms = (data?.rooms ?? []).filter((room) => !majorFilter || room.major_names?.includes(majorFilter));
+  const changeMajor = (major: string) => {
+    setMajorFilter(major);
+    if (major && !selectedRoom?.major_names?.includes(major)) {
+      setSelectedRoomId(data?.rooms.find((room) => room.major_names?.includes(major))?.id ?? null);
+    }
+    setSelectedItem(null);
+    setExpandedListItemId(null);
+    setQuery("");
+  };
   const seats = useMemo(
     () =>
       (selectedRoom?.items ?? [])
@@ -185,17 +196,7 @@ export function StudentPortal() {
 
   return (
     <main className="student-shell">
-      <header className={`topbar ${topbarScrolled ? "is-scrolled" : ""}`}>
-        <Brand />
-        <nav className="public-navigation" aria-label="主导航">
-          <a href="#workspace">工位地图</a>
-        </nav>
-        <div className="topbar-actions">
-          <span className="privacy-note"><LockKeyhole size={14} /> 校内访问</span>
-          <ThemeToggle />
-          <Link className="text-link" href="/admin/login">管理入口 <ArrowRight size={15} /></Link>
-        </div>
-      </header>
+      <PublicHeader />
 
       <section className="hero-line">
         <div>
@@ -204,13 +205,14 @@ export function StudentPortal() {
         {data && data.rooms.length > 0 && (
           <div className="hero-metrics" aria-label="工位概况">
             <span><strong>{data.rooms.length}</strong> 个房间</span>
-            <span><strong>{data.rooms.reduce((sum, room) => sum + (room.seat_counts.available ?? 0), 0)}</strong> 个空位</span>
+            <span><strong>{data.rooms.reduce((sum, room) => sum + room.items.filter((item) => item.type === "seat").length, 0)}</strong> 个工位</span>
+            <span className="vacancy-metric"><strong>{data.rooms.reduce((sum, room) => sum + (room.seat_counts.available ?? 0), 0)}</strong> 可申请</span>
           </div>
         )}
       </section>
 
       {loading ? (
-        <div className="central-message"><RefreshCw className="spin" /> 正在读取空间信息…</div>
+        <div className="central-message"><RefreshCw className="spin" /> 正在加载房间数据…</div>
       ) : loadError ? (
         <div className="central-message error"><CircleAlert /> <span>{loadError}</span><button onClick={load}>重试</button></div>
       ) : !data?.rooms.length ? (
@@ -220,18 +222,19 @@ export function StudentPortal() {
           <p>管理员完成房间布局并发布后，工位会显示在这里。</p>
         </div>
       ) : (
-        <>
-          <RoomPicker rooms={data.rooms} selected={selectedRoom} onSelect={(room) => { setSelectedRoomId(room.id); setSelectedItem(null); setExpandedListItemId(null); }} />
+        <div className="public-workspace">
+          <RoomPicker rooms={filteredRooms} allRooms={data.rooms} selected={selectedRoom} majorFilter={majorFilter} onMajorChange={changeMajor} onSelect={(room) => { setSelectedRoomId(room.id); setSelectedItem(null); setExpandedListItemId(null); setQuery(""); }} />
           {selectedRoom && (
             <section className="workspace-frame" id="workspace">
-              <div className="workspace-toolbar glass-surface">
-                <div>
-                  <strong>{selectedRoom.name}</strong>
-                  <span>{[selectedRoom.building, getFloorLabel(selectedRoom)].filter(Boolean).join(" · ")}</span>
-                </div>
+              <div className="room-heading">
+                <div className="room-heading-title"><span className="room-number">{selectedRoom.name}</span><div><h2>研究生办公室</h2><div className="room-major-tags" aria-label="房间所属专业"><MajorTags names={selectedRoom.major_names} /></div><p>{[selectedRoom.building, getFloorLabel(selectedRoom)].filter(Boolean).join(" · ")}<span> / </span>{selectedRoom.items.filter((item) => item.type === "seat").length} 个工位</p></div></div>
+                <div className="room-availability"><i />{selectedRoom.seat_counts.available ?? 0} 个工位可申请</div>
+              </div>
+              <div className="workspace-toolbar">
                 <label className="search-field">
                   <Search size={16} />
-                  <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、导师或座位" />
+                  <input aria-label="搜索当前房间工位" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、导师或座位号" />
+                  {query && <button aria-label="清空搜索" onClick={() => setQuery("")}><X size={14} /></button>}
                 </label>
                 <div className="segmented-control" aria-label="视图切换">
                   <button className={view === "map" ? "active" : ""} onClick={() => setView("map")}><LayoutGrid size={16} /> 平面图</button>
@@ -241,12 +244,12 @@ export function StudentPortal() {
 
               <div className="legend-line">
                 {(Object.keys(labels) as SeatState[]).map((state) => (
-                  <span key={state}><i className={`state-dot ${state}`} />{labels[state]}</span>
+                  <span key={state}><i className={`state-dot ${state}`} />{labels[state]}<b>{selectedRoom.seat_counts[state] ?? 0}</b></span>
                 ))}
               </div>
 
               {view === "map" ? (
-                <SeatMap room={selectedRoom} selectedId={selectedItem?.id} onSelect={openSeat} />
+                <RoomPlan key={selectedRoom.id} room={selectedRoom} query={query} onSelect={openSeat} />
               ) : (
                 <div className="seat-table-wrap">
                   <table className="data-table public-seat-table">
@@ -307,7 +310,7 @@ export function StudentPortal() {
               )}
             </section>
           )}
-        </>
+        </div>
       )}
 
       {selectedItem?.seat && (

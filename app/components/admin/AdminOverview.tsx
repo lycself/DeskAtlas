@@ -16,7 +16,7 @@ export function AdminOverview({ onNavigate }: { onNavigate: (section: "applicati
   const [error, setError] = useState("");
   useEffect(() => { api<Overview>("/api/admin/overview").then(setData).catch((e) => setError(e.message)); }, []);
   if (error) return <div className="admin-page"><div className="central-message error"><CircleAlert />{error}</div></div>;
-  if (!data) return <div className="admin-page"><div className="central-message"><RefreshCw className="spin" />正在整理空间数据…</div></div>;
+  if (!data) return <div className="admin-page"><div className="central-message"><RefreshCw className="spin" />正在加载统计数据…</div></div>;
   const maxMajor = Math.max(1, ...data.majors.map((item) => item.count));
   const maxAdviser = Math.max(1, ...data.advisers.map((item) => item.count));
   return (

@@ -64,6 +64,7 @@ class RoomCreate(BaseModel):
     building: str | None = Field(default=None, max_length=120)
     floor: str | None = Field(default=None, max_length=60)
     description: str | None = Field(default=None, max_length=1000)
+    major_names: list[str] = Field(default_factory=list, max_length=20)
     canvas_width: int = Field(default=960, ge=480, le=2400)
     canvas_height: int = Field(default=620, ge=320, le=1600)
 
@@ -72,20 +73,33 @@ class RoomCreate(BaseModel):
     def trim_text(cls, value: Any) -> Any:
         return value.strip() if isinstance(value, str) else value
 
+    @field_validator("major_names")
+    @classmethod
+    def normalize_majors(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or len(value.strip()) > 120 for value in values):
+            raise ValueError("专业名称不能为空且不能超过120字")
+        return list(dict.fromkeys(value.strip() for value in values))
+
 
 class RoomUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     building: str | None = Field(default=None, max_length=120)
     floor: str | None = Field(default=None, max_length=60)
     description: str | None = Field(default=None, max_length=1000)
+    major_names: list[str] = Field(default_factory=list, max_length=20)
     canvas_width: int | None = Field(default=None, ge=480, le=2400)
     canvas_height: int | None = Field(default=None, ge=320, le=1600)
     is_archived: bool | None = None
 
+    @field_validator("major_names")
+    @classmethod
+    def normalize_majors(cls, values: list[str]) -> list[str]:
+        return RoomCreate.normalize_majors(values)
+
 
 class LayoutItem(BaseModel):
     id: str | None = None
-    type: Literal["seat", "door", "window", "aisle", "column", "equipment", "label"]
+    type: Literal["seat", "door", "window", "aisle", "column", "equipment", "label", "wall"]
     label: str = Field(default="", max_length=80)
     x: float = Field(ge=0)
     y: float = Field(ge=0)

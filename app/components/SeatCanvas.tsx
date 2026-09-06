@@ -91,11 +91,11 @@ export default function SeatCanvas({ room, items, editable = false, selectedId, 
                 <Rect
                   width={item.width}
                   height={item.height}
-                  fill={isSeat ? palette.fill : fixtureFill}
+                  fill={item.type === "wall" ? "#637181" : isSeat ? palette.fill : fixtureFill}
                   stroke={selected ? "#ffffff" : isSeat ? palette.stroke : "rgba(130,150,175,.55)"}
                   strokeWidth={selected ? 3 : 1.4}
                   dash={item.type === "aisle" || item.type === "window" ? [8, 6] : undefined}
-                  cornerRadius={isSeat ? 9 : item.type === "column" ? 3 : 6}
+                  cornerRadius={item.type === "wall" ? 0 : isSeat ? 9 : item.type === "column" ? 3 : 6}
                   shadowColor={isSeat ? palette.stroke : "transparent"}
                   shadowBlur={selected ? 15 : 5}
                   shadowOpacity={0.2}
@@ -105,7 +105,7 @@ export default function SeatCanvas({ room, items, editable = false, selectedId, 
                   height={item.height}
                   align="center"
                   verticalAlign="middle"
-                  text={isSeat ? `${item.label}${item.seat?.occupant ? `\n${item.seat.occupant.name}` : ""}` : item.label}
+                  text={item.type === "wall" ? "" : isSeat ? `${item.label}${item.seat?.occupant ? `\n${item.seat.occupant.name}` : ""}` : item.label}
                   fill={isSeat ? "#10243a" : "#718096"}
                   fontSize={isSeat ? 13 : 12}
                   fontStyle={isSeat ? "bold" : "normal"}

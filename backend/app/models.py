@@ -42,6 +42,7 @@ class Room(Base, TimestampMixin):
     building: Mapped[str | None] = mapped_column(String(120), nullable=True)
     floor: Mapped[str | None] = mapped_column(String(60), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    major_names: Mapped[list[str]] = mapped_column(JsonType, default=list, server_default=text("'[]'"))
     canvas_width: Mapped[int] = mapped_column(Integer, default=960)
     canvas_height: Mapped[int] = mapped_column(Integer, default=620)
     draft_layout: Mapped[list[dict[str, Any]]] = mapped_column(JsonType, default=list)
@@ -197,4 +198,3 @@ class AuditLog(Base):
     before_data: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     after_data: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
-

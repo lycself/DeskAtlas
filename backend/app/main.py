@@ -200,6 +200,7 @@ def serialize_room(db: Session, room: Room, *, draft: bool = False) -> dict[str,
         "building": room.building,
         "floor": room.floor,
         "description": room.description,
+        "major_names": room.major_names or [],
         "canvas_width": room.canvas_width,
         "canvas_height": room.canvas_height,
         "is_published": room.is_published,
@@ -955,6 +956,9 @@ def import_commit(payload: ImportCommit, db: Db, _: Admin) -> dict[str, Any]:
                 db.flush()
                 counts["created_rooms"] += 1
             layout = room_layouts.setdefault(room.id, list(room.draft_layout or room.published_layout or []))
+            room_major = str(row.get("major_name") or "").strip()
+            if room_major and room_major not in (room.major_names or []):
+                room.major_names = [*(room.major_names or []), room_major]
 
             if row.get("kind") == "equipment":
                 equipment_id = f"import-equipment-{room.id}-{row.get('source_row')}"

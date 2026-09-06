@@ -45,6 +45,23 @@ def test_dynamic_year_range_and_school_email() -> None:
     assert str(payload.email) == "student@stu.xmu.edu"
 
 
+def test_room_affiliations_are_public_and_preserved_by_partial_updates() -> None:
+    with TestClient(app) as client:
+        login(client)
+        room, _ = create_published_room(client, "多专业房间", ["1"])
+        endpoint = f"/api/admin/rooms/{room['id']}"
+        updated = client.patch(endpoint, json={"major_names": [" 光学 ", "理论物理", "光学"]})
+        assert updated.status_code == 200
+        assert updated.json()["major_names"] == ["光学", "理论物理"]
+        renamed = client.patch(endpoint, json={"name": "共用房间"}).json()
+        assert renamed["major_names"] == ["光学", "理论物理"]
+        public = client.get("/api/public/bootstrap").json()
+        assert next(r for r in public["rooms"] if r["id"] == room["id"])["major_names"] == ["光学", "理论物理"]
+        assert client.patch(endpoint, json={"major_names": None}).status_code == 422
+        assert client.patch(endpoint, json={"major_names": [" "]}).status_code == 422
+        assert client.patch(endpoint, json={"major_names": []}).json()["major_names"] == []
+
+
 def test_import_preview_flags_legacy_variants_and_equipment() -> None:
     book = Workbook()
     sheet = book.active

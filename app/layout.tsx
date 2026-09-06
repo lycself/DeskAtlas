@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import "./globals.css";
+import "./public-space.css";
 
 export const metadata: Metadata = {
   title: "DeskAtlas · 研究生工位地图",

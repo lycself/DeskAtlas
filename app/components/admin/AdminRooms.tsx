@@ -29,6 +29,7 @@ import { api } from "@/app/lib/api";
 import { groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
 import type { LayoutItem, Room } from "@/app/lib/types";
 import { SeatMap } from "../SeatMap";
+import { MajorTags } from "../MajorTags";
 
 const fixtureDefaults: Record<string, { label: string; width: number; height: number }> = {
   door: { label: "门", width: 82, height: 22 },
@@ -39,8 +40,8 @@ const fixtureDefaults: Record<string, { label: string; width: number; height: nu
   label: { label: "说明", width: 110, height: 34 },
 };
 
-type RoomForm = { name: string; building: string; floor: string; description: string };
-const emptyRoomForm: RoomForm = { name: "", building: "", floor: "", description: "" };
+type RoomForm = { name: string; building: string; floor: string; description: string; majors: string };
+const emptyRoomForm: RoomForm = { name: "", building: "", floor: "", description: "", majors: "" };
 const seatStateLabel: Record<string, string> = { available: "可申请", pending: "审核中", occupied: "已占用", unavailable: "不可使用" };
 
 export function AdminRooms() {
@@ -73,7 +74,7 @@ export function AdminRooms() {
   };
   useEffect(() => { void load(); }, []);
   const room = rooms.find((item) => item.id === selectedRoomId);
-  useEffect(() => { setItems(room?.items ?? []); setPast([]); setFuture([]); setSelectedId(null); setSelectedIds([]); setPreview(false); setRoomView("map"); setRoomForm(room ? { name: room.name, building: room.building ?? "", floor: room.floor ?? "", description: room.description ?? "" } : emptyRoomForm); }, [room]);
+  useEffect(() => { setItems(room?.items ?? []); setPast([]); setFuture([]); setSelectedId(null); setSelectedIds([]); setPreview(false); setRoomView("map"); setRoomForm(room ? { name: room.name, building: room.building ?? "", floor: room.floor ?? "", description: room.description ?? "", majors: (room.major_names ?? []).join("、") } : emptyRoomForm); }, [room]);
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const roomGroups = useMemo(() => groupRoomsByFloor(rooms), [rooms]);
 
@@ -109,7 +110,7 @@ export function AdminRooms() {
     event.preventDefault(); if (!room || !roomForm.name.trim()) return;
     const value = (text: string) => text.trim() || null;
     try {
-      const updated = await api<Room>(`/api/admin/rooms/${room.id}`, { method: "PATCH", body: JSON.stringify({ name: roomForm.name.trim(), building: value(roomForm.building), floor: value(roomForm.floor), description: value(roomForm.description) }) });
+      const updated = await api<Room>(`/api/admin/rooms/${room.id}`, { method: "PATCH", body: JSON.stringify({ name: roomForm.name.trim(), building: value(roomForm.building), floor: value(roomForm.floor), description: value(roomForm.description), major_names: roomForm.majors.split(/[、,，;；]/).map((name) => name.trim()).filter(Boolean) }) });
       setRooms((rows) => sortRooms(rows.map((item) => item.id === updated.id ? updated : item))); setMessage("房间信息已更新");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "房间信息更新失败"); }
   };
@@ -195,7 +196,7 @@ export function AdminRooms() {
   return (
     <div className="admin-page rooms-page">
       <header className="page-heading">
-        <h1>空间与平面图</h1>
+        <h1>房间与平面图</h1>
         <form className="inline-create room-create" onSubmit={createRoom}>
           <input aria-label="新房间楼层" placeholder="楼层" value={newFloor} onChange={(e) => setNewFloor(e.target.value)} />
           <input aria-label="新房间名称" placeholder="房间号或名称" value={newRoom} onChange={(e) => setNewRoom(e.target.value)} />
@@ -212,7 +213,7 @@ export function AdminRooms() {
                 <h3>{group.floor}</h3>
                 {group.rooms.map((item) => (
                   <button key={item.id} className={room?.id === item.id ? "active" : ""} onClick={() => setSelectedRoomId(item.id)}>
-                    <span><strong>{item.name}</strong><small>{item.items.filter((x) => x.type === "seat").length} 个工位</small></span>
+                    <span><strong>{item.name}</strong><span className="room-major-tags"><MajorTags names={item.major_names} compact /></span><small>{item.items.filter((x) => x.type === "seat").length} 个工位</small></span>
                     <i className={item.is_published ? "published" : "draft"}>{item.is_published ? "已发布" : "草稿"}</i>
                   </button>
                 ))}
@@ -238,6 +239,7 @@ export function AdminRooms() {
               <input aria-label="楼层" placeholder="楼层" value={roomForm.floor} onChange={(e) => setRoomForm({ ...roomForm, floor: e.target.value })} />
               <input aria-label="房间名称" placeholder="房间号或名称" required value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} />
               <input aria-label="楼栋（可选）" placeholder="楼栋（可选）" value={roomForm.building} onChange={(e) => setRoomForm({ ...roomForm, building: e.target.value })} />
+              <input aria-label="所属专业（多个用顿号分隔）" placeholder="所属专业（多个用顿号分隔）" value={roomForm.majors} onChange={(e) => setRoomForm({ ...roomForm, majors: e.target.value })} />
               <input aria-label="房间说明（可选）" placeholder="房间说明（可选）" value={roomForm.description} onChange={(e) => setRoomForm({ ...roomForm, description: e.target.value })} />
               <button>保存房间信息</button>
             </form>
