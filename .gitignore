@@ -12,3 +12,4 @@ uploads/
 *.db
 *.tsbuildinfo
 .DS_Store
+/*.xlsx
