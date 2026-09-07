@@ -93,7 +93,7 @@ docker compose exec -T db pg_dump -U deskatlas -d deskatlas -Fc > deskatlas.back
 docker compose exec -T db pg_restore -U deskatlas -d deskatlas --clean --if-exists < deskatlas.backup
 ```
 
-恢复前应停止写入，并先在测试数据库验证备份文件。管理员密码通过重新运行 `pnpm admin:hash`、更新 `.env` 并重启 API 服务完成轮换。
+恢复前应停止写入，并先在测试数据库验证备份文件。管理员密码通过运行 `pnpm admin:set` 并输入两次新密码设置，命令直接更新项目 `.env` 中的哈希，不保存明文。随后重启 `pnpm dev`（或 API 服务）生效。`pnpm admin:hash` 仅打印哈希，不修改配置。
 
 ## 验证
 

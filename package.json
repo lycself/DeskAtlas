@@ -16,7 +16,8 @@
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:migrate": ".venv/bin/python -m alembic -c backend/alembic.ini upgrade head",
-    "admin:hash": ".venv/bin/python scripts/hash_admin_password.py"
+    "admin:hash": ".venv/bin/python scripts/hash_admin_password.py",
+    "admin:set": ".venv/bin/python scripts/hash_admin_password.py --save"
   },
   "dependencies": {
     "konva": "10.3.2",

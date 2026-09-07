@@ -84,7 +84,16 @@ def surveyed_preview(roster: bytes, floorplan: bytes) -> dict[str, Any]:
                              "left": (left, top, 4, 66), "right": (left + 94, top, 4, 66)}
                     for edge, geometry in edges.items():
                         border = getattr(cell.border, edge)
-                        if border and border.style in {"medium", "thick", "double"}:
+                        dr, dc, opposite = {"top": (-1, 0, "bottom"), "bottom": (1, 0, "top"),
+                                            "left": (0, -1, "right"), "right": (0, 1, "left")}[edge]
+                        neighbor = sheet.cell(cell.row + dr, cell.column + dc)
+                        adjacent = getattr(neighbor.border, opposite)
+                        # Excel may store a shared edge only on the neighboring cell.
+                        # I10's thin edge is the 402 entrance partition, not a desk border.
+                        if (any(side and side.style in {"medium", "thick", "double"}
+                                for side in (border, adjacent))
+                                or (name == "402" and cell.coordinate == "I10" and edge == "right"
+                                    and border and border.style == "thin")):
                             walls[geometry] = dict(zip(("x", "y", "width", "height"), geometry))
                     location = {"x": 48 + (cell.column - origin_col) * 94,
                                 "y": 64 + (cell.row - origin_row) * 66,
@@ -98,14 +107,23 @@ def surveyed_preview(roster: bytes, floorplan: bytes) -> dict[str, Any]:
         duplicates = {code: [p["source_cell"] for p in locs]
                       for code, locs in locations.items() if len(locs) > 1}
         extra = sorted(set(locations) - set(codes), key=int)
+        for code in extra:
+            if code not in unique:
+                continue
+            rows.append(dict(seat_code=code, room_name=name, kind="empty", person_name=None,
+                             adviser=None, enrollment_year=None, program_level=None, major_name=None,
+                             source_row=None, note=f"工位分布图 {unique[code]['source_cell']}；汇总表未列，使用情况待核对",
+                             warnings=[], reserved=True, map_only=True))
         for row in rows:
             row["location"] = unique.get(row["seat_code"])
             if row["seat_code"] in missing:
                 row["warnings"].append("分布图未提供唯一位置")
-            row["reserved"] = (row["kind"] == "empty" and (
+            row["reserved"] = (row.get("map_only", False) or row["kind"] == "empty" and (
                 any(token in (row["note"] or "") for token in ("备用间", "放物品", "个工位"))
                 or bool(region and row["seat_code"] in missing)))
         result[name] = {"rows": rows, "doors": doors, "walls": list(walls.values()), "range": region,
+                        "unresolved_positions": [dict(code=code, **location)
+                            for code, locs in locations.items() if len(locs) > 1 for location in locs],
                         "major_names": sorted({row["major_name"] for row in rows if row["major_name"]}),
                         "missing": missing, "duplicates": duplicates, "extra": extra}
     return {"fingerprint": hashlib.sha256(roster + floorplan).hexdigest(), "rooms": result,
@@ -179,7 +197,7 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                             "y": fallback_y + (fallback_index // 8) * 66}
                 fallback_index += 1
             note = "；".join(filter(None, [row["note"],
-                f"汇总表第{row['source_row']}行", *row["warnings"]]))
+                f"汇总表第{row['source_row']}行" if row['source_row'] else None, *row["warnings"]]))
             if row["kind"] == "empty":
                 note += "；" + "；".join(filter(None, [
                     f"导师：{row['adviser']}" if row["adviser"] else None,
@@ -249,6 +267,7 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
         for i, wall in enumerate(info.get("walls", [])):
             layout.append(dict(id=f"survey-wall-{room.id}-{i}", type="wall", label="墙",
                                rotation=0, **wall))
+        layout.extend(unresolved_layout(room.id, info))
         # Preserve seats outside the source instead of silently deleting platform data.
         included = {item["id"] for item in layout}
         for item in room.draft_layout or []:
@@ -262,7 +281,7 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
         if info["duplicates"]:
             description += " 图中重复编号：" + "、".join(info["duplicates"]) + "。"
         if info["extra"]:
-            description += " 图有但汇总表未列编号：" + "、".join(info["extra"]) + "（未新增）。"
+            description += " 图有但汇总表未列编号：" + "、".join(info["extra"]) + "（唯一位置已补入，使用情况待核对）。"
         room.description = " ".join(filter(None, [room.description, description]))
         room.canvas_width = max(960, int(max(i["x"] + i["width"] for i in layout) + 48))
         room.canvas_height = max(620, int(max(i["y"] + i["height"] for i in layout) + 48))
@@ -275,3 +294,10 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                     before_data={"replaced_assignments": before}, after_data=result))
     db.flush()
     return result
+
+
+def unresolved_layout(room_id: int, info: dict[str, Any]) -> list[dict[str, Any]]:
+    """Show physical desks without guessing which roster occupant belongs there."""
+    return [dict(id=f"survey-unresolved-{room_id}-{p['source_cell']}", type="label",
+                 label=f"原表{p['code']}号", x=p["x"], y=p["y"], width=76, height=48, rotation=0)
+            for p in info.get("unresolved_positions", [])]

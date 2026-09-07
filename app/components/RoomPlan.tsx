@@ -78,6 +78,10 @@ export function RoomPlan({ room, query, onSelect }: {
             {item.type === "door" ? <>
               <path className="door-swing" d={`M 6 ${item.height - 4} L 6 4 M 6 4 Q ${item.width - 8} 4 ${item.width - 8} ${item.height - 4}`} />
               <text x={item.width / 2} y={item.height + 13} textAnchor="middle">入口</text>
+            </> : item.id.startsWith("survey-unresolved-") ? <>
+              <rect className="desk-shape" width={item.width} height={item.height} rx={3} strokeDasharray="4 3" />
+              <text x={item.width / 2} y={19} textAnchor="middle">{item.label}</text>
+              <text x={item.width / 2} y={37} textAnchor="middle">编号待核对</text>
             </> : item.type === "label" ? <text x={0} y={18}>{item.label}</text> : <>
               <rect className="desk-shape" width={item.width} height={item.height} rx={seat ? 3 : 2} />
               {seat && <rect className="desk-status" x={0} y={0} width={3} height={item.height} rx={1.5} />}

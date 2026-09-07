@@ -120,3 +120,50 @@ def test_survey_failure_rolls_back_all_changes():
         assert db.scalar(select(func.count()).select_from(Room)) == 1
         assert db.scalar(select(func.count()).select_from(Student)) == 0
         assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
+
+
+def test_shared_walls_thin_partition_and_map_only_seats():
+    roster, plan = Workbook(), Workbook()
+    roster.active.append(["房间", "座位号", "姓名"])
+    for name in ("302", "402", "408"):
+        roster.active.append([name, 1, None])
+    for cell, value in {"AI19": 302, "AF17": 1, "H10": 402, "J5": 1,
+                        "O10": 408, "S8": 1, "P2": 19, "P3": 18}.items():
+        plan.active[cell] = value
+    plan.active["AD13"].border = Border(right=Side(style="medium"))
+    plan.active["AE12"].border = Border(bottom=Side(style="medium"))
+    plan.active["I10"].border = Border(right=Side(style="thin"))
+    plan.active["J5"].border = Border(bottom=Side(style="thin"))
+    preview = surveyed_preview(workbook_bytes(roster), workbook_bytes(plan))
+    assert {"x": 39, "y": 55, "width": 4, "height": 66} in preview["rooms"]["302"]["walls"]
+    assert {"x": 39, "y": 55, "width": 94, "height": 4} in preview["rooms"]["302"]["walls"]
+    assert preview["rooms"]["402"]["walls"] == [{"x": 227, "y": 583, "width": 4, "height": 66}]
+    rows = preview["rooms"]["408"]["rows"]
+    assert [r["seat_code"] for r in rows] == ["1", "18", "19"]
+    assert all(r["reserved"] and r["location"] and r["person_name"] is None for r in rows[1:])
+
+
+def test_targeted_repair_is_idempotent_and_preserves_assignments():
+    from scripts.repair_survey_layouts import repair
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        preview = survey()
+        apply_survey(db, preview)
+        db.flush()
+        room = db.scalar(select(Room).where(Room.name == "680"))
+        room.published_layout = [i for i in room.published_layout if not i["id"].startswith("survey-unresolved-")]
+        room.draft_layout = list(room.published_layout)
+        before = [(a.id, a.student_id, a.seat_id, a.ended_at) for a in db.scalars(select(Assignment))]
+        repair(db, preview)
+        db.flush()
+        placeholders = [i for i in room.published_layout if i["id"].startswith("survey-unresolved-")]
+        assert len(placeholders) == 2
+        assert {(i["x"], i["y"]) for i in placeholders} == {(142, 196), (142, 262)}
+        assert before == [(a.id, a.student_id, a.seat_id, a.ended_at) for a in db.scalars(select(Assignment))]
+        layout = list(room.published_layout)
+        audit_count = db.scalar(select(func.count()).select_from(AuditLog))
+        repair(db, preview)
+        db.flush()
+        assert room.published_layout == layout
+        assert db.scalar(select(func.count()).select_from(AuditLog)) == audit_count
