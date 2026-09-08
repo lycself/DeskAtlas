@@ -19,6 +19,8 @@ import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
 import type { Bootstrap, LayoutItem, Room, SeatState } from "@/app/lib/types";
+import { StudentProfile } from "./StudentProfile";
+import { DetailDialog } from "./DetailDialog";
 import { RoomPlan } from "./RoomPlan";
 import { PublicHeader } from "./PublicHeader";
 import { MajorTags } from "./MajorTags";
@@ -283,15 +285,7 @@ export function StudentPortal() {
                               <tr className="public-seat-expanded-row">
                                 <td colSpan={6}>
                                   {occupant ? (
-                                    <div className="inline-seat-detail">
-                                      <div className="inline-seat-heading"><span className={`state-icon ${item.seat!.display_state}`}>{item.label}</span><div><small>{selectedRoom.name}</small><strong>{occupant.name}</strong></div></div>
-                                      <dl>
-                                        <div><dt>导师</dt><dd>{occupant.adviser || "未填写"}</dd></div>
-                                        <div><dt>年级</dt><dd>{occupant.enrollment_year || "未填写"}</dd></div>
-                                        <div><dt>培养层次</dt><dd>{occupant.program_level || "未填写"}</dd></div>
-                                        <div><dt>专业</dt><dd>{occupant.major || "未填写"}</dd></div>
-                                      </dl>
-                                    </div>
+                                    <StudentProfile person={occupant} location={`${selectedRoom.name} · 工位 ${item.label}`} />
                                   ) : (
                                     <div className="inline-seat-status">
                                       <div><strong>工位 {item.label}</strong><p>{item.seat!.display_state === "available" ? "当前可以申请这个工位。" : item.seat!.note || "这个工位目前不可申请。"}</p></div>
@@ -314,23 +308,13 @@ export function StudentPortal() {
       )}
 
       {selectedItem?.seat && (
-        <div className="drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setSelectedItem(null)}>
-          <aside className="detail-drawer glass-surface">
-            <button className="drawer-close" onClick={() => setSelectedItem(null)} aria-label="关闭"><X /></button>
-            <div className="drawer-heading">
+        <DetailDialog label={`${selectedRoom?.name} · 工位 ${selectedItem.label}`} onClose={() => setSelectedItem(null)} wide={selectedItem.seat.display_state === "available"}>
+            <div className={`drawer-heading ${selectedItem.seat.occupant ? "seat-context-heading" : ""}`}>
               <span className={`state-icon ${selectedItem.seat.display_state}`}>{selectedItem.label}</span>
               <div><p>{selectedRoom?.name}</p><h2>工位 {selectedItem.label}</h2></div>
             </div>
             {selectedItem.seat.display_state === "occupied" && selectedItem.seat.occupant ? (
-              <div className="occupant-sheet">
-                <dl>
-                  <div><dt>使用人</dt><dd>{selectedItem.seat.occupant.name}</dd></div>
-                  <div><dt>导师</dt><dd>{selectedItem.seat.occupant.adviser || "未填写"}</dd></div>
-                  <div><dt>年级</dt><dd>{selectedItem.seat.occupant.enrollment_year || "未填写"}</dd></div>
-                  <div><dt>培养层次</dt><dd>{selectedItem.seat.occupant.program_level || "未填写"}</dd></div>
-                  <div><dt>专业</dt><dd>{selectedItem.seat.occupant.major || "未填写"}</dd></div>
-                </dl>
-              </div>
+              <StudentProfile person={selectedItem.seat.occupant} location={`${selectedRoom?.name} · 工位 ${selectedItem.label}`} />
             ) : selectedItem.seat.display_state === "pending" ? (
               <div className="drawer-message"><CircleAlert /><h3>申请正在审核</h3><p>该工位已被临时锁定，暂时不能提交新的申请。</p></div>
             ) : selectedItem.seat.display_state === "unavailable" ? (
@@ -355,8 +339,7 @@ export function StudentPortal() {
                 <button className="primary-action" disabled={submitting}>{submitting ? "正在提交…" : "提交申请"}<ArrowRight size={17} /></button>
               </form>
             )}
-          </aside>
-        </div>
+        </DetailDialog>
       )}
     </main>
   );

@@ -7,11 +7,11 @@ from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
 from typing import Any, Annotated
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, defer
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
@@ -150,9 +150,10 @@ def seat_eligibility(db: Session, seat: Seat, exclude_application_id: int | None
     return None
 
 
-def seat_public_data(db: Session, seat: Seat) -> dict[str, Any]:
-    assignment = active_assignment_for_seat(db, seat.id)
-    pending = pending_application_for_seat(db, seat.id)
+def seat_public_data(db: Session, seat: Seat, *, state: tuple | None = None) -> dict[str, Any]:
+    assignment, pending = state if state is not None else (
+        active_assignment_for_seat(db, seat.id), pending_application_for_seat(db, seat.id)
+    )
     if seat.is_archived or seat.admin_status != "active":
         display_state = "unavailable"
     elif assignment:
@@ -182,9 +183,30 @@ def seat_public_data(db: Session, seat: Seat) -> dict[str, Any]:
     }
 
 
-def serialize_room(db: Session, room: Room, *, draft: bool = False) -> dict[str, Any]:
-    layout = room.draft_layout if draft else room.published_layout
-    seats = {seat.id: seat_public_data(db, seat) for seat in room.seats if not seat.is_archived}
+def room_seat_data(db: Session, rooms: list[Room]) -> dict[str, dict[str, Any]]:
+    seats = [seat for room in rooms for seat in room.seats if not seat.is_archived]
+    if not seats:
+        return {}
+    ids = [seat.id for seat in seats]
+    assignments = {row.seat_id: row for row in db.scalars(
+        select(Assignment).options(joinedload(Assignment.student).joinedload(Student.major))
+        .where(Assignment.seat_id.in_(ids), Assignment.ended_at.is_(None))
+    ).all()}
+    pending = set(db.scalars(select(Application.seat_id).where(
+        Application.seat_id.in_(ids), Application.status == "pending"
+    )).all())
+    return {seat.id: seat_public_data(db, seat, state=(assignments.get(seat.id), seat.id in pending)) for seat in seats}
+
+
+def serialize_rooms(db: Session, rooms: list[Room], *, draft: bool = False, summary_only: bool = False) -> list[dict[str, Any]]:
+    seats = room_seat_data(db, rooms)
+    return [serialize_room(db, room, draft=draft, seat_data=seats, summary_only=summary_only) for room in rooms]
+
+
+def serialize_room(db: Session, room: Room, *, draft: bool = False, seat_data: dict | None = None, summary_only: bool = False) -> dict[str, Any]:
+    layout = [] if summary_only else (room.draft_layout if draft else room.published_layout)
+    all_seats = seat_data if seat_data is not None else room_seat_data(db, [room])
+    seats = {seat.id: all_seats[seat.id] for seat in room.seats if seat.id in all_seats}
     items: list[dict[str, Any]] = []
     for raw_item in layout or []:
         item = dict(raw_item)
@@ -225,18 +247,22 @@ def student_is_complete(student: Student) -> bool:
     )
 
 
-def serialize_student(db: Session, student: Student) -> dict[str, Any]:
-    current = db.scalar(
-        select(Assignment)
-        .options(joinedload(Assignment.seat).joinedload(Seat.room))
-        .where(Assignment.student_id == student.id, Assignment.ended_at.is_(None))
-    )
-    history = db.scalars(
-        select(Assignment)
-        .options(joinedload(Assignment.seat).joinedload(Seat.room))
-        .where(Assignment.student_id == student.id)
-        .order_by(Assignment.started_at.desc())
-    ).all()
+def student_assignments(db: Session, ids: list[int], *, current_only: bool = False) -> dict[int, list[Assignment]]:
+    if not ids:
+        return {}
+    query = select(Assignment).options(joinedload(Assignment.seat).joinedload(Seat.room)).where(Assignment.student_id.in_(ids))
+    if current_only:
+        query = query.where(Assignment.ended_at.is_(None))
+    grouped: dict[int, list[Assignment]] = defaultdict(list)
+    for record in db.scalars(query.order_by(Assignment.started_at.desc(), Assignment.id.desc())).all():
+        grouped[record.student_id].append(record)
+    return grouped
+
+
+def serialize_student(db: Session, student: Student, *, records: list[Assignment] | None = None, include_history: bool = True) -> dict[str, Any]:
+    records = records if records is not None else student_assignments(db, [student.id]).get(student.id, [])
+    current = next((row for row in records if row.ended_at is None), None)
+    history = records if include_history else []
     return {
         "id": student.id,
         "student_no": student.student_no,
@@ -322,7 +348,7 @@ def public_bootstrap(db: Db) -> dict[str, Any]:
         "years": allowed_years(),
         "program_levels": ["硕士", "博士"],
         "majors": [{"id": major.id, "name": major.name} for major in majors],
-        "rooms": [serialize_room(db, room) for room in rooms],
+        "rooms": serialize_rooms(db, rooms),
     }
 
 
@@ -535,11 +561,13 @@ def review_application(application_id: int, payload: ApplicationReview, db: Db, 
 
 
 @app.get("/api/admin/rooms")
-def list_rooms(db: Db, _: Admin, include_archived: bool = False) -> list[dict[str, Any]]:
+def list_rooms(db: Db, _: Admin, include_archived: bool = False, summary_only: bool = False) -> list[dict[str, Any]]:
     query = select(Room).options(joinedload(Room.seats)).order_by(Room.name)
     if not include_archived:
         query = query.where(Room.is_archived.is_(False))
-    return [serialize_room(db, room, draft=True) for room in db.scalars(query).unique().all()]
+    if summary_only:
+        query = query.options(defer(Room.draft_layout), defer(Room.published_layout))
+    return serialize_rooms(db, db.scalars(query).unique().all(), draft=True, summary_only=summary_only)
 
 
 @app.post("/api/admin/rooms", status_code=201)
@@ -675,7 +703,50 @@ def list_students(db: Db, _: Admin, incomplete_only: bool = False) -> list[dict[
     query = select(Student).options(joinedload(Student.major)).order_by(Student.name)
     if incomplete_only:
         query = query.where(Student.is_complete.is_(False))
-    return [serialize_student(db, student) for student in db.scalars(query).unique().all()]
+    students = db.scalars(query).unique().all()
+    assignments = student_assignments(db, [student.id for student in students])
+    return [serialize_student(db, student, records=assignments.get(student.id, [])) for student in students]
+
+
+@app.get("/api/admin/student-directory")
+def student_directory(db: Db, _: Admin, q: str = "", incomplete_only: bool = False,
+                      offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100)) -> dict[str, Any]:
+    filters = []
+    if incomplete_only:
+        filters.append(Student.is_complete.is_(False))
+    if q.strip():
+        filters.append(or_(*(column.icontains(q.strip(), autoescape=True) for column in (Student.name, Student.student_no, Student.adviser))))
+    total = db.scalar(select(func.count()).select_from(Student).where(*filters))
+    students = db.scalars(select(Student).options(joinedload(Student.major)).where(*filters)
+                          .order_by(Student.name, Student.id).offset(offset).limit(limit)).all()
+    assignments = student_assignments(db, [student.id for student in students], current_only=True)
+    return {"total": total, "items": [serialize_student(db, student, records=assignments.get(student.id, []), include_history=False) for student in students]}
+
+
+@app.get("/api/admin/students/{student_id}")
+def get_student(student_id: int, db: Db, _: Admin) -> dict[str, Any]:
+    student = db.scalar(select(Student).options(joinedload(Student.major)).where(Student.id == student_id))
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+    return serialize_student(db, student)
+
+
+@app.get("/api/admin/options")
+def admin_options(db: Db, _: Admin) -> dict[str, Any]:
+    majors = db.scalars(select(Major).order_by(Major.sort_order, Major.name)).all()
+    return {"years": allowed_years(), "program_levels": ["硕士", "博士"],
+            "majors": [{"id": major.id, "name": major.name, "is_active": major.is_active} for major in majors]}
+
+
+@app.get("/api/admin/available-seats")
+def available_seats(db: Db, _: Admin) -> list[dict[str, Any]]:
+    seats = db.scalars(select(Seat).options(joinedload(Seat.room)).join(Room).where(
+        Seat.is_archived.is_(False), Room.is_archived.is_(False), Seat.admin_status == "active",
+        ~Seat.assignments.any(Assignment.ended_at.is_(None)),
+        ~Seat.applications.any(Application.status == "pending"),
+    ).order_by(Room.name, Seat.code)).all()
+    return [{"id": seat.id, "label": f"{seat.room.floor or infer_floor(seat.room.name) or '未设置楼层'} · {seat.room.name} · {seat.code}"}
+            for seat in seats if any(item.get("id") == seat.id for item in seat.room.draft_layout or [])]
 
 
 @app.post("/api/admin/students", status_code=201)
@@ -851,7 +922,10 @@ def save_smtp(payload: SmtpConfig, db: Db, _: Admin) -> dict[str, Any]:
     config.sender_name = payload.sender_name
     config.sender_email = str(payload.sender_email)
     if payload.password:
-        config.encrypted_password = encrypt_secret(payload.password)
+        try:
+            config.encrypted_password = encrypt_secret(payload.password)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="邮件配置加密密钥不可用，请检查服务器 SETTINGS_ENCRYPTION_KEY") from exc
     config.is_configured = bool(config.host and config.sender_email)
     db.add(config)
     audit(db, "smtp.updated", "smtp", 1, before, {"host": config.host, "port": config.port, "security": config.security, "username": config.username})

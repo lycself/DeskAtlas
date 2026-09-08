@@ -14,11 +14,12 @@ import {
   UserRoundX,
   X,
 } from "lucide-react";
-import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "@/app/lib/api";
-import { getFloorLabel, sortRooms } from "@/app/lib/rooms";
-import type { Bootstrap, Room, Student } from "@/app/lib/types";
+import type { Bootstrap, Student } from "@/app/lib/types";
+
+import { StudentProfile } from "../StudentProfile";
 
 type StudentForm = {
   name: string;
@@ -43,9 +44,18 @@ const blank: StudentForm = {
   seat_id: "",
 };
 
-export function AdminStudents() {
+export function AdminStudents({ active = true }: { active?: boolean }) {
   const [students, setStudents] = useState<Student[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
+  const [freeSeats, setFreeSeats] = useState<Array<{ id: string; label: string }>>([]);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState<Student | null>(null);
+  const [detailVersion, setDetailVersion] = useState(0);
+  const [detailTab, setDetailTab] = useState("profile");
+  const requestId = useRef(0);
   const [options, setOptions] = useState<Bootstrap | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
@@ -58,40 +68,51 @@ export function AdminStudents() {
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
+    const request = ++requestId.current;
+    setLoading(true); setError("");
     try {
-      const [studentRows, roomRows, bootstrap] = await Promise.all([
-        api<Student[]>(`/api/admin/students${incompleteOnly ? "?incomplete_only=true" : ""}`),
-        api<Room[]>("/api/admin/rooms"),
-        api<Bootstrap>("/api/public/bootstrap"),
-      ]);
-      setStudents(studentRows);
-      setRooms(sortRooms(roomRows));
-      setOptions(bootstrap);
-      setSelectedId((id) => (studentRows.some((item) => item.id === id) ? id : null));
+      const params = new URLSearchParams({ offset: String(page * 30), limit: "30", q: query, incomplete_only: String(incompleteOnly) });
+      const rows = await api<{ items: Student[]; total: number }>(`/api/admin/student-directory?${params}`);
+      if (request !== requestId.current) return;
+      setStudents(rows.items); setTotal(rows.total);
+      if (page > 0 && page * 30 >= rows.total) setPage(Math.max(0, Math.ceil(rows.total / 30) - 1));
+      setSelectedId((id) => rows.items.some((item) => item.id === id) ? id : null);
+      setDetailVersion((version) => version + 1);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "加载学生失败");
-    }
-  }, [incompleteOnly]);
+      if (request === requestId.current) setError(caught instanceof Error ? caught.message : "加载学生失败");
+    } finally { if (request === requestId.current) setLoading(false); }
+  }, [incompleteOnly, page, query]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  const filtered = students.filter((student) =>
-    `${student.name} ${student.student_no ?? ""} ${student.adviser ?? ""}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const selected = students.find((student) => student.id === selectedId);
-  const freeSeats = useMemo(
-    () => rooms.flatMap((room) =>
-      room.items
-        .filter((item) => item.type === "seat" && item.seat?.display_state === "available")
-        .map((item) => ({ id: item.id, label: `${getFloorLabel(room)} · ${room.name} · ${item.label}` })),
-    ),
-    [rooms],
-  );
+    if (!active) return;
+    const timer = setTimeout(() => { void load(); }, 180);
+    return () => { clearTimeout(timer); requestId.current += 1; };
+  }, [load, active]);
+  useEffect(() => {
+    const controller = new AbortController();
+    if (!active) return;
+    api<Bootstrap>("/api/admin/options", { signal: controller.signal }).then(setOptions).catch((caught) => { if (!controller.signal.aborted) setError(caught.message); });
+    return () => controller.abort();
+  }, [active]);
+  useEffect(() => {
+    if (!showCreate && !selectedId) return;
+    const controller = new AbortController();
+    api<Array<{ id: string; label: string }>>("/api/admin/available-seats", { signal: controller.signal }).then(setFreeSeats).catch((caught) => { if (!controller.signal.aborted) setError(caught.message); });
+    return () => controller.abort();
+  }, [showCreate, selectedId, detailVersion]);
+  useEffect(() => {
+    if (!selectedId) return;
+    const controller = new AbortController();
+    api<Student>(`/api/admin/students/${selectedId}`, { signal: controller.signal }).then(setDetail).catch((caught) => { if (!controller.signal.aborted) setError(caught.message); });
+    return () => controller.abort();
+  }, [selectedId, detailVersion]);
+  const filtered = students;
+  const selected = detail?.id === selectedId ? detail : students.find((student) => student.id === selectedId);
 
   const create = async (event: FormEvent) => {
     event.preventDefault();
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
     setError("");
     const value = (text: string) => text.trim() || null;
     try {
@@ -114,7 +135,7 @@ export function AdminStudents() {
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "录入失败");
-    }
+    } finally { busyRef.current = false; setBusy(false); }
   };
 
   const beginEdit = () => {
@@ -132,7 +153,8 @@ export function AdminStudents() {
 
   const saveEdit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!selected || !editForm) return;
+    if (!selected || !editForm || busyRef.current) return;
+    busyRef.current = true; setBusy(true);
     setError("");
     const value = (text: string) => text.trim() || null;
     try {
@@ -153,16 +175,17 @@ export function AdminStudents() {
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "更新失败");
-    }
+    } finally { busyRef.current = false; setBusy(false); }
   };
 
   const move = async () => {
-    if (!selected || !moveSeat) return;
+    if (!selected || !moveSeat || busyRef.current) return;
     const target = freeSeats.find((seat) => seat.id === moveSeat)?.label ?? "所选工位";
     const original = selected.current_assignment
       ? `${selected.current_assignment.room_name} · ${selected.current_assignment.seat_code}`
       : "未分配";
     if (!confirm(`确认把 ${selected.name} 从“${original}”调整到“${target}”？`)) return;
+    busyRef.current = true; setBusy(true);
     try {
       await api(`/api/admin/students/${selected.id}/move`, {
         method: "POST",
@@ -173,39 +196,42 @@ export function AdminStudents() {
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "移动失败");
-    }
+    } finally { busyRef.current = false; setBusy(false); }
   };
 
   const release = async () => {
-    if (!selected || !confirm(`释放 ${selected.name} 的当前工位？`)) return;
+    if (!selected || busyRef.current || !confirm(`释放 ${selected.name} 的当前工位？`)) return;
+    busyRef.current = true; setBusy(true);
     try {
       await api(`/api/admin/students/${selected.id}/release`, { method: "POST" });
       setMessage("工位已释放");
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "释放失败");
-    }
+    } finally { busyRef.current = false; setBusy(false); }
   };
 
   return (
     <div className="admin-page">
       <header className="page-heading">
         <h1>学生与工位</h1>
-        <button className="primary-action compact" onClick={() => setShowCreate(true)}><Plus size={16} />直接录入</button>
+        <button disabled={busy} className="primary-action compact" onClick={() => setShowCreate(true)}><Plus size={16} />直接录入</button>
       </header>
       {error && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}
       {message && <p className="success-banner"><UserRoundCheck size={16} />{message}</p>}
 
+      <fieldset disabled={busy}>
       <div className="student-tools">
-        <label className="search-field"><Search size={16} /><input placeholder="搜索姓名、学号或导师" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-        <label className="check-control"><input type="checkbox" checked={incompleteOnly} onChange={(event) => setIncompleteOnly(event.target.checked)} />只看信息待补全</label>
-        <button onClick={load}><RefreshCw size={15} />刷新</button>
+        <label className="search-field"><Search size={16} /><input placeholder="搜索姓名、学号或导师" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} /></label>
+        <label className="check-control"><input type="checkbox" checked={incompleteOnly} onChange={(event) => { setIncompleteOnly(event.target.checked); setPage(0); }} />只看信息待补全</label>
+        <button disabled={loading} onClick={load}><RefreshCw size={15} />刷新</button>
       </div>
 
       <section className="seat-table-wrap student-table">
         <table className="data-table student-data-table">
           <thead><tr><th>学生</th><th>导师</th><th>专业</th><th>当前工位</th><th>资料</th><th /></tr></thead>
           <tbody>
+            {!filtered.length && <tr><td colSpan={6} className="table-empty">{loading ? "正在加载学生…" : "没有匹配的学生"}</td></tr>}
             {filtered.map((student) => {
               const expanded = selectedId === student.id;
               return (
@@ -213,7 +239,9 @@ export function AdminStudents() {
                   <tr
                     className={expanded ? "selected" : ""}
                     onClick={() => {
+                      if (busy) return;
                       setSelectedId(expanded ? null : student.id);
+                      setDetailTab("profile"); setDetail(null);
                       setEditForm(null);
                       setMoveSeat("");
                     }}
@@ -228,11 +256,13 @@ export function AdminStudents() {
                   {expanded && selected && (
                     <tr className="student-expanded-row">
                       <td colSpan={6} onClick={(event) => event.stopPropagation()}>
+                        <div className="student-detail-tabs" role="group" aria-label="学生详情">
+                          {[['profile', '学生资料'], ['seat', '调整工位'], ['history', '分配历史']].map(([id, label]) => <button key={id} aria-pressed={detailTab === id} onClick={() => setDetailTab(id)}>{label}</button>)}
+                        </div>
                         <div className="inline-student-detail">
-                          <section className="student-profile-section">
+                          <section className="student-profile-section" hidden={detailTab !== "profile"}>
                             <header>
-                              <span className="review-avatar large">{selected.name.slice(0, 1)}</span>
-                              <div><h2>{selected.name}</h2><p>{selected.student_no || "尚未补录学号"}</p></div>
+                              <div><strong>{editForm ? `编辑 ${selected.name} 的资料` : "基本资料"}</strong></div>
                               <button className="detail-edit" onClick={() => editForm ? setEditForm(null) : beginEdit()}>{editForm ? <X size={15} /> : <Pencil size={15} />}{editForm ? "取消" : "修改资料"}</button>
                             </header>
                             {editForm ? (
@@ -249,26 +279,20 @@ export function AdminStudents() {
                                 <button className="primary-action compact"><Save size={15} />保存资料</button>
                               </form>
                             ) : (
-                              <dl>
-                                <div><dt>导师</dt><dd>{selected.adviser || "未填写"}</dd></div>
-                                <div><dt>年级</dt><dd>{selected.enrollment_year || "未填写"}</dd></div>
-                                <div><dt>培养层次</dt><dd>{selected.program_level || "未填写"}</dd></div>
-                                <div><dt>专业</dt><dd>{selected.major || "未填写"}</dd></div>
-                                <div><dt>邮箱</dt><dd>{selected.email || "未填写"}</dd></div>
-                              </dl>
+                              <StudentProfile person={selected} location={selected.current_assignment ? `${selected.current_assignment.room_name} · 工位 ${selected.current_assignment.seat_code}` : "暂未分配工位"} />
                             )}
                           </section>
-                          <section className="move-panel">
+                          <section className="move-panel" hidden={detailTab !== "seat"}>
                             <h3><ArrowRightLeft size={16} />修改工位</h3>
                             <select value={moveSeat} onChange={(event) => setMoveSeat(event.target.value)}><option value="">选择一个空闲工位</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select>
                             <button disabled={!moveSeat} onClick={move}>确认移动</button>
                             {selected.current_assignment && <button className="danger-plain" onClick={release}><UserRoundX size={16} />释放当前工位</button>}
                           </section>
-                          <section className="history-list">
+                          <section className="history-list" hidden={detailTab !== "history"}>
                             <h3>分配历史</h3>
                             {selected.history.length ? selected.history.map((row) => (
                               <div key={row.id}><span>{row.room} · {row.seat}</span><small>{new Date(row.started_at).toLocaleDateString("zh-CN")} — {row.ended_at ? new Date(row.ended_at).toLocaleDateString("zh-CN") : "现在"}</small></div>
-                            )) : <p>暂无分配记录</p>}
+                            )) : <p>{detail?.id === selectedId ? "暂无分配记录" : "正在加载分配历史…"}</p>}
                           </section>
                         </div>
                       </td>
@@ -280,12 +304,16 @@ export function AdminStudents() {
           </tbody>
         </table>
       </section>
+      <div className="pagination"><span>{loading ? "更新中…" : `共 ${total} 名学生`}</span><button disabled={loading || page === 0} onClick={() => setPage(page - 1)}>上一页</button><span>{page + 1} / {Math.max(1, Math.ceil(total / 30))}</span><button disabled={loading || (page + 1) * 30 >= total} onClick={() => setPage(page + 1)}>下一页</button></div>
 
+      </fieldset>
       {showCreate && (
         <div className="modal-backdrop">
-          <form className="modal-panel glass-surface" onSubmit={create}>
+          <form className="modal-panel glass-surface" onSubmit={create} aria-busy={busy}>
             <header><h2>直接录入学生</h2><button type="button" aria-label="关闭" onClick={() => setShowCreate(false)}>×</button></header>
             <p>除姓名外，其他信息可以稍后补全。</p>
+            {error && <p className="form-error">{error}</p>}
+            <fieldset disabled={busy}>
             <div className="field-grid two">
               <label><span>姓名</span><input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
               <label><span>学号</span><input value={form.student_no} onChange={(event) => setForm({ ...form, student_no: event.target.value })} /></label>
@@ -299,6 +327,7 @@ export function AdminStudents() {
             </div>
             <label><span>直接分配工位</span><select value={form.seat_id} onChange={(event) => setForm({ ...form, seat_id: event.target.value })}><option value="">暂不分配</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select></label>
             <button className="primary-action">保存学生</button>
+            </fieldset>
           </form>
         </div>
       )}

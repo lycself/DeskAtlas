@@ -11,10 +11,10 @@ type Overview = {
   advisers: Array<{ name: string; count: number }>;
 };
 
-export function AdminOverview({ onNavigate }: { onNavigate: (section: "applications" | "students" | "rooms") => void }) {
+export function AdminOverview({ onNavigate, active = true }: { active?: boolean; onNavigate: (section: "applications" | "students" | "rooms") => void }) {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
-  useEffect(() => { api<Overview>("/api/admin/overview").then(setData).catch((e) => setError(e.message)); }, []);
+  useEffect(() => { if (!active) return; api<Overview>("/api/admin/overview").then(setData).catch((e) => setError(e.message)); }, [active]);
   if (error) return <div className="admin-page"><div className="central-message error"><CircleAlert />{error}</div></div>;
   if (!data) return <div className="admin-page"><div className="central-message"><RefreshCw className="spin" />正在加载统计数据…</div></div>;
   const maxMajor = Math.max(1, ...data.majors.map((item) => item.count));

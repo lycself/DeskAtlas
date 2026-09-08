@@ -17,7 +17,7 @@ type ReviewData = {
   major_id: string;
 };
 
-export function AdminApplications() {
+export function AdminApplications({ active = true }: { active?: boolean }) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [options, setOptions] = useState<Bootstrap | null>(null);
@@ -34,7 +34,7 @@ export function AdminApplications() {
       const [apps, roomRows, bootstrap] = await Promise.all([
         api<Application[]>("/api/admin/applications?application_status=pending"),
         api<Room[]>("/api/admin/rooms"),
-        api<Bootstrap>("/api/public/bootstrap"),
+        api<Bootstrap>("/api/admin/options"),
       ]);
       setApplications(apps);
       setRooms(roomRows);
@@ -45,7 +45,7 @@ export function AdminApplications() {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { if (active) void load(); }, [active]);
   const selected = applications.find((item) => item.id === selectedId);
   useEffect(() => {
     if (!selected) return setForm(null);

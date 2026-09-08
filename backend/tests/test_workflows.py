@@ -219,3 +219,72 @@ def test_admin_boundaries_and_smtp_secret_masking() -> None:
         assert body["has_password"] is True
         assert "password" not in body
         assert "encrypted_password" not in body
+
+
+def test_directory_queries_are_bounded_and_match_room_details() -> None:
+    from sqlalchemy import event
+    from backend.app.database import engine
+    with TestClient(app) as client:
+        login(client)
+        room, seats = create_published_room(client, "查询回归房间", [str(i) for i in range(1, 25)])
+        for index in range(4):
+            assert client.post("/api/admin/students", json={"name": f"分页回归{index}", "seat_id": seats[index]}).status_code == 201
+        calls = []
+        def record(*args):
+            calls.append(1)
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            summaries = client.get("/api/admin/rooms?summary_only=true")
+            assert summaries.status_code == 200
+            assert len(calls) <= 3
+            summary = next(row for row in summaries.json() if row["id"] == room["id"])
+            assert summary["items"] == []
+            assert summary["seat_counts"] == {"available": 20, "occupied": 4}
+            calls.clear()
+            public = client.get("/api/public/bootstrap").json()
+            assert len(calls) <= 4
+            public_room = next(row for row in public["rooms"] if row["id"] == room["id"])
+            assert public_room["seat_counts"] == summary["seat_counts"]
+            assert "email" not in public_room["items"][0]["seat"]["occupant"]
+            calls.clear()
+            page = client.get("/api/admin/student-directory?q=分页回归&limit=2").json()
+            assert len(calls) <= 3
+            assert page["total"] == 4 and len(page["items"]) == 2
+            assert all(not row["history"] for row in page["items"])
+            second = client.get("/api/admin/student-directory?q=分页回归&limit=2&offset=2").json()
+            assert not ({row["id"] for row in page["items"]} & {row["id"] for row in second["items"]})
+            detail = client.get(f'/api/admin/students/{page["items"][0]["id"]}').json()
+            assert len(detail["history"]) == 1
+            assert detail["current_assignment"] == page["items"][0]["current_assignment"]
+            assert client.get("/api/admin/student-directory?limit=0").status_code == 422
+            assert client.get("/api/admin/student-directory?q=%25").json()["total"] == 0
+            assert "rooms" not in client.get("/api/admin/options").json()
+            available = client.get("/api/admin/available-seats").json()
+            ids = {row["id"] for row in available}
+            assert set(seats[:4]).isdisjoint(ids)
+            assert set(seats[4:]).issubset(ids)
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+
+
+def test_smtp_decryption_failure_is_recorded_and_retry_reports_failure(monkeypatch) -> None:
+    import backend.app.mailer as mailer
+    with TestClient(app) as client:
+        login(client)
+        config = {"host": "smtp.test.invalid", "port": 587, "security": "starttls", "username": "test", "password": "secret", "sender_name": "DeskAtlas", "sender_email": "test@example.edu"}
+        assert client.put("/api/admin/smtp", json=config).status_code == 200
+        def broken_decrypt(_):
+            raise RuntimeError("SMTP password cannot be decrypted")
+        monkeypatch.setattr(mailer, "decrypt_secret", broken_decrypt)
+        result = client.post("/api/admin/smtp/test", json={"recipient": "test@example.edu"})
+        assert result.status_code == 200
+        assert result.json()["status"] == "failed"
+        assert "cannot be decrypted" in result.json()["error"]
+        delivery = client.get("/api/admin/email-deliveries").json()[0]
+        assert delivery["attempt_count"] == 1 and delivery["status"] == "failed"
+        retry = client.post(f'/api/admin/email-deliveries/{delivery["id"]}/retry')
+        assert retry.status_code == 200 and retry.json()["status"] == "failed"
+        assert client.get("/api/admin/email-deliveries").json()[0]["attempt_count"] == 2
+        monkeypatch.setattr(mailer.settings, "settings_encryption_key", "")
+        assert client.put("/api/admin/smtp", json=config).status_code == 503
+        assert client.get("/api/admin/smtp").json()["has_password"] is True

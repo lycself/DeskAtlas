@@ -43,14 +43,13 @@ def deliver(db: Session, delivery: EmailDelivery) -> EmailDelivery:
         db.commit()
         return delivery
 
-    message = EmailMessage()
-    message["Subject"] = delivery.subject
-    message["From"] = f"{config.sender_name} <{config.sender_email}>"
-    message["To"] = delivery.recipient
-    message.set_content(delivery.body)
-
-    password = decrypt_secret(config.encrypted_password)
     try:
+        message = EmailMessage()
+        message["Subject"] = delivery.subject
+        message["From"] = f"{config.sender_name} <{config.sender_email}>"
+        message["To"] = delivery.recipient
+        message.set_content(delivery.body)
+        password = decrypt_secret(config.encrypted_password)
         if config.security == "ssl":
             with smtplib.SMTP_SSL(config.host, config.port, timeout=15, context=ssl.create_default_context()) as client:
                 if config.username:
