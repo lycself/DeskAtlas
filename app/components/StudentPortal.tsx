@@ -14,7 +14,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
@@ -63,8 +63,8 @@ function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorC
   return (
     <aside className="room-picker" aria-label="选择房间">
       <div className="directory-heading"><Building2 size={17} /><strong>房间列表</strong><span>{rooms.length}</span></div>
-      <label className="major-filter"><span>所属专业</span><select aria-label="所属专业" value={majorFilter} onChange={(event) => onMajorChange(event.target.value)}>
-        <option value="">全部专业</option>
+      <label className="major-filter"><span>所属教研中心</span><select aria-label="所属教研中心" value={majorFilter} onChange={(event) => onMajorChange(event.target.value)}>
+        <option value="">全部教研中心</option>
         {[...new Set(allRooms.flatMap((room) => room.major_names ?? []))].sort((a, b) => a.localeCompare(b, "zh-CN")).map((major) => <option key={major} value={major}>{major}（{allRooms.filter((room) => room.major_names?.includes(major)).length}）</option>)}
       </select></label>
       <section className="picker-row">
@@ -73,12 +73,13 @@ function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorC
           {groups.map((group) => (
             <button
               type="button"
+              aria-label={group.floor}
               aria-pressed={selectedFloor === group.floor}
               className={`floor-tab ${selectedFloor === group.floor ? "active" : ""}`}
               key={group.floor}
               onClick={() => onSelect(group.rooms[0])}
             >
-              <strong>{group.floor}</strong>
+              <strong>{group.floor === "虚拟工位" ? "虚拟" : group.floor}</strong>
             </button>
           ))}
         </div>
@@ -95,8 +96,8 @@ function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorC
               onClick={() => onSelect(room)}
             >
               <span>{room.name}</span>
-              <div className="room-tab-majors"><MajorTags names={room.major_names} compact /></div>
-              <small className={room.seat_counts.available ? "has-vacancy" : ""}><i />{room.seat_counts.available ? `${room.seat_counts.available} 空位` : "暂无空位"}</small>
+              {!room.is_virtual && <div className="room-tab-majors"><MajorTags names={room.major_names} compact /></div>}
+              <small className={room.seat_counts.available ? "has-vacancy" : ""}><i />{room.is_virtual ? `${room.items.length} 人` : room.seat_counts.available ? `${room.seat_counts.available} 空位` : "暂无空位"}</small>
             </button>
           ))}
         </div>
@@ -120,6 +121,10 @@ export function StudentPortal() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const profileCard = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (selectedItem?.seat?.occupant && view === "map" && window.matchMedia("(max-width: 1050px)").matches) profileCard.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedItem, view]);
 
   const load = async () => {
     setLoading(true);
@@ -206,8 +211,8 @@ export function StudentPortal() {
         </div>
         {data && data.rooms.length > 0 && (
           <div className="hero-metrics" aria-label="工位概况">
-            <span><strong>{data.rooms.length}</strong> 个房间</span>
-            <span><strong>{data.rooms.reduce((sum, room) => sum + room.items.filter((item) => item.type === "seat").length, 0)}</strong> 个工位</span>
+            <span><strong>{data.rooms.filter((room) => !room.is_virtual).length}</strong> 个房间</span>
+            <span><strong>{data.rooms.filter((room) => !room.is_virtual).reduce((sum, room) => sum + room.items.filter((item) => item.type === "seat").length, 0)}</strong> 个工位</span>
             <span className="vacancy-metric"><strong>{data.rooms.reduce((sum, room) => sum + (room.seat_counts.available ?? 0), 0)}</strong> 可申请</span>
           </div>
         )}
@@ -229,8 +234,8 @@ export function StudentPortal() {
           {selectedRoom && (
             <section className="workspace-frame" id="workspace">
               <div className="room-heading">
-                <div className="room-heading-title"><span className="room-number">{selectedRoom.name}</span><div><h2>研究生办公室</h2><div className="room-major-tags" aria-label="房间所属专业"><MajorTags names={selectedRoom.major_names} /></div><p>{[selectedRoom.building, getFloorLabel(selectedRoom)].filter(Boolean).join(" · ")}<span> / </span>{selectedRoom.items.filter((item) => item.type === "seat").length} 个工位</p></div></div>
-                <div className="room-availability"><i />{selectedRoom.seat_counts.available ?? 0} 个工位可申请</div>
+                <div className="room-heading-title"><span className="room-number">{selectedRoom.name}</span><div><h2>{selectedRoom.is_virtual ? "虚拟工位" : "研究生办公室"}</h2>{!selectedRoom.is_virtual && <div className="room-major-tags" aria-label="房间所属教研中心"><MajorTags names={selectedRoom.major_names} /></div>}<p>{[selectedRoom.building, getFloorLabel(selectedRoom)].filter(Boolean).join(" · ")}<span> / </span>{selectedRoom.items.filter((item) => item.type === "seat").length} {selectedRoom.is_virtual ? "人" : "个工位"}</p></div></div>
+                <div className="room-availability"><i />{selectedRoom.is_virtual ? "人员暂存分组" : `${selectedRoom.seat_counts.available ?? 0} 个工位可申请`}</div>
               </div>
               <div className="workspace-toolbar">
                 <label className="search-field">
@@ -239,23 +244,29 @@ export function StudentPortal() {
                   {query && <button aria-label="清空搜索" onClick={() => setQuery("")}><X size={14} /></button>}
                 </label>
                 <div className="segmented-control" aria-label="视图切换">
-                  <button className={view === "map" ? "active" : ""} onClick={() => setView("map")}><LayoutGrid size={16} /> 平面图</button>
-                  <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}><List size={16} /> 列表</button>
+                  <button disabled={selectedRoom.is_virtual} className={view === "map" && !selectedRoom.is_virtual ? "active" : ""} onClick={() => setView("map")}><LayoutGrid size={16} /> 平面图</button>
+                  <button className={view === "list" || selectedRoom.is_virtual ? "active" : ""} onClick={() => setView("list")}><List size={16} /> 列表</button>
                 </div>
               </div>
 
-              <div className="legend-line">
+              <div className="legend-line" hidden={selectedRoom.is_virtual}>
                 {(Object.keys(labels) as SeatState[]).map((state) => (
                   <span key={state}><i className={`state-dot ${state}`} />{labels[state]}<b>{selectedRoom.seat_counts[state] ?? 0}</b></span>
                 ))}
               </div>
 
-              {view === "map" ? (
-                <RoomPlan key={selectedRoom.id} room={selectedRoom} query={query} onSelect={openSeat} />
+              {view === "map" && !selectedRoom.is_virtual ? (
+                <div className={`public-plan-layout ${selectedItem?.seat?.occupant ? "has-selection" : ""}`}>
+                  <RoomPlan key={selectedRoom.id} room={selectedRoom} query={query} onSelect={openSeat} selectedId={selectedItem?.id} />
+                  {selectedItem?.seat?.occupant && <aside ref={profileCard} className="public-student-card" aria-label="所选学生资料">
+                    <header><span>{selectedRoom.name} · 工位 {selectedItem.label}</span><button aria-label="收起学生资料" onClick={() => setSelectedItem(null)}><X size={16} /></button></header>
+                    <StudentProfile person={selectedItem.seat.occupant} compact />
+                  </aside>}
+                </div>
               ) : (
                 <div className="seat-table-wrap">
                   <table className="data-table public-seat-table">
-                    <thead><tr><th>工位</th><th>状态</th><th>使用人</th><th>导师</th><th>专业</th><th /></tr></thead>
+                    <thead><tr><th>工位</th><th>状态</th><th>使用人</th><th>导师</th><th>教研中心</th><th /></tr></thead>
                     <tbody>
                       {seats.map((item) => {
                         const expanded = expandedListItemId === item.id;
@@ -275,7 +286,7 @@ export function StudentPortal() {
                               }}
                             >
                               <td className="seat-code">{item.label}</td>
-                              <td><span className={`state-label ${item.seat!.display_state}`}><i />{labels[item.seat!.display_state]}</span></td>
+                              <td><span className={`state-label ${item.seat!.display_state}`}><i />{selectedRoom.is_virtual ? selectedRoom.name === "未被分配" ? "待分配" : "翔安" : labels[item.seat!.display_state]}</span></td>
                               <td>{occupant?.name ?? "—"}</td>
                               <td>{occupant?.adviser ?? "—"}</td>
                               <td>{occupant?.major ?? "—"}</td>
@@ -285,7 +296,7 @@ export function StudentPortal() {
                               <tr className="public-seat-expanded-row">
                                 <td colSpan={6}>
                                   {occupant ? (
-                                    <StudentProfile person={occupant} location={`${selectedRoom.name} · 工位 ${item.label}`} />
+                                    <StudentProfile person={occupant} location={selectedRoom.is_virtual ? selectedRoom.name : `${selectedRoom.name} · 工位 ${item.label}`} />
                                   ) : (
                                     <div className="inline-seat-status">
                                       <div><strong>工位 {item.label}</strong><p>{item.seat!.display_state === "available" ? "当前可以申请这个工位。" : item.seat!.note || "这个工位目前不可申请。"}</p></div>
@@ -307,7 +318,7 @@ export function StudentPortal() {
         </div>
       )}
 
-      {selectedItem?.seat && (
+      {selectedItem?.seat && !selectedItem.seat.occupant && (
         <DetailDialog label={`${selectedRoom?.name} · 工位 ${selectedItem.label}`} onClose={() => setSelectedItem(null)} wide={selectedItem.seat.display_state === "available"}>
             <div className={`drawer-heading ${selectedItem.seat.occupant ? "seat-context-heading" : ""}`}>
               <span className={`state-icon ${selectedItem.seat.display_state}`}>{selectedItem.label}</span>
@@ -329,11 +340,11 @@ export function StudentPortal() {
                   <label><span>学号</span><input required value={form.student_no} onChange={(e) => setForm({ ...form, student_no: e.target.value })} /></label>
                 </div>
                 <label><span>导师全名</span><input required placeholder="请填写导师完整姓名" value={form.adviser} onChange={(e) => setForm({ ...form, adviser: e.target.value })} /><small>信息不完整或不准确可能导致审核不通过</small></label>
-                <label><span>学生邮箱</span><input required type="email" pattern=".+@stu\.xmu\.edu" placeholder="name@stu.xmu.edu" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+                <label><span>学生邮箱</span><input readOnly aria-label="学生邮箱（根据学号自动生成）" placeholder="根据学号自动生成" value={form.student_no.trim() ? `${form.student_no.trim()}@stu.xmu.edu.cn` : ""} /></label>
                 <div className="field-grid three">
                   <label><span>年级</span><div className="select-wrap"><select required value={form.enrollment_year} onChange={(e) => setForm({ ...form, enrollment_year: e.target.value })}>{data?.years.map((year) => <option key={year}>{year}</option>)}</select><ChevronDown /></div></label>
                   <label><span>培养层次</span><div className="select-wrap"><select required value={form.program_level} onChange={(e) => setForm({ ...form, program_level: e.target.value })}>{data?.program_levels.map((level) => <option key={level}>{level}</option>)}</select><ChevronDown /></div></label>
-                  <label><span>专业</span><div className="select-wrap"><select required value={form.major_id} onChange={(e) => setForm({ ...form, major_id: e.target.value })}>{data?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select><ChevronDown /></div></label>
+                  <label><span>教研中心</span><div className="select-wrap"><select required value={form.major_id} onChange={(e) => setForm({ ...form, major_id: e.target.value })}>{data?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select><ChevronDown /></div></label>
                 </div>
                 {formError && <p className="form-error"><CircleAlert size={16} />{formError}</p>}
                 <button className="primary-action" disabled={submitting}>{submitting ? "正在提交…" : "提交申请"}<ArrowRight size={17} /></button>

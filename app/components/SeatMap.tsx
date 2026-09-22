@@ -16,6 +16,7 @@ type Props = {
   selectedIds?: string[];
   onSelect?: (item: LayoutItem | null, additive?: boolean) => void;
   onItemsChange?: (items: LayoutItem[]) => void;
+  onSelectMany?: (ids: string[]) => void;
 };
 
 export function SeatMap(props: Props) {

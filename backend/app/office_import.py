@@ -12,6 +12,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from openpyxl import load_workbook
+from openpyxl.utils.cell import range_boundaries
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -43,7 +44,7 @@ def fill_missing_student_fields(student: Student, row: dict[str, Any]) -> dict[s
     return changes
 
 
-def surveyed_preview(roster: bytes, floorplan: bytes) -> dict[str, Any]:
+def surveyed_preview(roster: bytes, floorplan: bytes, *, map_ranges: dict[str, str] | None = None) -> dict[str, Any]:
     preview = preview_workbook(roster)
     sheet = load_workbook(io.BytesIO(floorplan), data_only=True).active
     rooms = defaultdict(list)
@@ -62,6 +63,13 @@ def surveyed_preview(roster: bytes, floorplan: bytes) -> dict[str, Any]:
             row["warnings"].append("备注退学；保留表内占用，待核实是否已腾退")
         rooms[row["room_name"]].append(row)
 
+    regions = MAP_RANGES if map_ranges is None else map_ranges
+    region_owners = defaultdict(set)
+    for room_name, bounds in regions.items():
+        left, top, right, bottom = range_boundaries(bounds)
+        for row_index in range(top, bottom + 1):
+            for col_index in range(left, right + 1):
+                region_owners[row_index, col_index].add(room_name)
     result = {}
     for name, rows in rooms.items():
         codes = [row["seat_code"] for row in rows]
@@ -70,7 +78,7 @@ def surveyed_preview(roster: bytes, floorplan: bytes) -> dict[str, Any]:
         locations = defaultdict(list)
         doors = []
         walls = {}
-        region = MAP_RANGES.get(name)
+        region = regions.get(name)
         if region:
             cells = sheet[region]
             if not any(str(cell.value) == name for line in cells for cell in line):
@@ -86,8 +94,14 @@ def surveyed_preview(roster: bytes, floorplan: bytes) -> dict[str, Any]:
                         border = getattr(cell.border, edge)
                         dr, dc, opposite = {"top": (-1, 0, "bottom"), "bottom": (1, 0, "top"),
                                             "left": (0, -1, "right"), "right": (0, 1, "left")}[edge]
-                        neighbor = sheet.cell(cell.row + dr, cell.column + dc)
-                        adjacent = getattr(neighbor.border, opposite)
+                        # Preserve shared borders stored on blank margin cells, but never
+                        # borrow another room's border (301's blank F column adjoins 302 at G).
+                        neighbor_row, neighbor_col = cell.row + dr, cell.column + dc
+                        neighbor = sheet.cell(neighbor_row, neighbor_col) if (
+                            neighbor_row > 0 and neighbor_col > 0
+                            and not (region_owners[neighbor_row, neighbor_col] - {name})
+                        ) else None
+                        adjacent = getattr(neighbor.border, opposite) if neighbor else None
                         # Excel may store a shared edge only on the neighboring cell.
                         # I10's thin edge is the 402 entrance partition, not a desk border.
                         if (any(side and side.style in {"medium", "thick", "double"}
@@ -134,7 +148,8 @@ def surveyed_preview(roster: bytes, floorplan: bytes) -> dict[str, Any]:
                         "reserved": sum(r["reserved"] for r in preview["rows"])}}
 
 
-def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: bool = False) -> dict[str, Any]:
+def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: bool = False,
+                 students_by_row: dict[int, Student] | None = None, authoritative: bool = False) -> dict[str, Any]:
     """Caller owns the transaction. Repeated source files cannot overwrite later edits."""
     fingerprint = preview["fingerprint"]
     previous = db.scalar(select(AuditLog).where(AuditLog.action == "survey.imported",
@@ -179,7 +194,8 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
             db.flush()
             counts["created_rooms"] += 1
         seats = {s.code: s for s in room.seats}
-        room.major_names = list(dict.fromkeys([*(room.major_names or []), *info.get("major_names", [])]))
+        room.major_names = list(dict.fromkeys([*([] if authoritative else room.major_names or []), *info.get("major_names", [])]))
+        room.is_archived = False
         layout = []
         mapped_bottom = max([p["y"] + 48 for p in info["doors"]] +
                             [r["location"]["y"] + 48 for r in info["rows"] if r["location"]] + [64])
@@ -210,7 +226,7 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                 if existing:
                     existing.is_archived = True
                 layout.append(dict(id=f"survey-equipment-{room.id}-{code}", type="equipment",
-                                   label=f"{code}号 打印机", x=position["x"], y=position["y"],
+                                   label=f"{code}号 {row['person_name']}", x=position["x"], y=position["y"],
                                    width=76, height=48, rotation=0))
                 counts["equipment"] += 1
                 continue
@@ -222,6 +238,10 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                 db.flush()
                 counts["created_seats"] += 1
             else:
+                if authoritative:
+                    seat.is_archived = False
+                    seat.admin_status = "reserved" if row["reserved"] else "active"
+                    seat.note = ""
                 seat.note = "；".join(filter(None, [seat.note, note]))
                 if row["reserved"] and seat.admin_status == "active":
                     seat.admin_status = "reserved"
@@ -251,7 +271,7 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                 major = Major(name=row["major_name"], sort_order=999)
                 db.add(major)
                 db.flush()
-            student = reusable.pop((row["person_name"], row["adviser"]), None)
+            student = (students_by_row or {}).get(row["source_row"]) or reusable.pop((row["person_name"], row["adviser"]), None)
             if not student:
                 student = Student(name=row["person_name"], adviser=row["adviser"],
                                   enrollment_year=row["enrollment_year"], program_level=row["program_level"],
@@ -274,7 +294,10 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
             if item.get("type") == "seat" and item["id"] not in included:
                 seat = next((s for s in seats.values() if s.id == item["id"]), None)
                 if seat and not seat.is_archived:
-                    raise ValueError(f"平台房间 {name} 存在汇总表未列出的座位 {seat.code}")
+                    if authoritative:
+                        seat.is_archived = True
+                    else:
+                        raise ValueError(f"平台房间 {name} 存在汇总表未列出的座位 {seat.code}")
         description = "按实测工位分布图还原相对位置；间距为示意尺寸。" if info["range"] else "分布图未提供此房间；按座位号暂排，实际位置待核对。"
         if info["missing"] and info["range"]:
             description += " 未定位编号：" + "、".join(info["missing"]) + "。"
@@ -282,7 +305,7 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
             description += " 图中重复编号：" + "、".join(info["duplicates"]) + "。"
         if info["extra"]:
             description += " 图有但汇总表未列编号：" + "、".join(info["extra"]) + "（唯一位置已补入，使用情况待核对）。"
-        room.description = " ".join(filter(None, [room.description, description]))
+        room.description = description if authoritative else " ".join(filter(None, [room.description, description]))
         room.canvas_width = max(960, int(max(i["x"] + i["width"] for i in layout) + 48))
         room.canvas_height = max(620, int(max(i["y"] + i["height"] for i in layout) + 48))
         room.draft_layout = layout

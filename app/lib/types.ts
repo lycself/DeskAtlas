@@ -30,6 +30,7 @@ export type LayoutItem = {
 };
 
 export type Room = {
+  is_virtual?: boolean;
   id: number;
   name: string;
   building?: string | null;

@@ -23,11 +23,11 @@ function bounds(items: LayoutItem[]) {
     height: Math.max(...corners.map((p) => p.y)) - y + 34 };
 }
 
-export function RoomPlan({ room, query, onSelect }: {
-  room: Room; query: string; onSelect: (item: LayoutItem) => void;
+export function RoomPlan({ room, query, onSelect, selectedId, choosingTarget = false }: {
+  room: Room; query: string; onSelect: (item: LayoutItem) => void; selectedId?: string | null; choosingTarget?: boolean;
 }) {
   const [zoom, setZoom] = useState(1);
-  const [fit, setFit] = useState(false);
+  const [fit, setFit] = useState(true);
   const [showNames, setShowNames] = useState(true);
   const reviewLabel = room.items.find((item) => item.type === "label" && item.label.includes("位置待核对"));
   const unplaced = reviewLabel ? room.items.filter((item) =>
@@ -44,7 +44,7 @@ export function RoomPlan({ room, query, onSelect }: {
   return <div className="room-plan">
     <div className="plan-controls">
       <div className="plan-caption"><span className="plan-indicator" />{hasWalls ? "房间平面图" : "工位示意图"}
-        <small>{normalized ? `${resultCount} 个匹配工位` : "点击工位查看详情"}</small></div>
+        <small>{normalized ? `${resultCount} 个匹配工位` : choosingTarget ? "点击空闲工位选择目标" : "点击工位查看详情"}</small></div>
       <div className="plan-actions">
         <button className="name-toggle" aria-pressed={showNames} onClick={() => setShowNames(!showNames)}>{showNames ? "姓名 + 编号" : "仅编号"}</button>
         {mapped.length > 0 && <div className="zoom-control">
@@ -69,9 +69,10 @@ export function RoomPlan({ room, query, onSelect }: {
           const occupant = item.seat?.occupant;
           const seat = item.type === "seat";
           return <g key={item.id} transform={`translate(${item.x} ${item.y}) rotate(${item.rotation})`}
-            className={`${seat ? `plan-seat ${state}` : `plan-fixture ${item.type}`} ${seat && !matches(item) ? "dimmed" : ""}`}
+            className={`${seat ? `plan-seat ${state}` : `plan-fixture ${item.type}`} ${seat && (!matches(item) || choosingTarget && state !== "available") ? "dimmed" : ""} ${item.id === selectedId ? "selected-seat" : ""}`}
             role={seat ? "button" : undefined} tabIndex={seat ? 0 : undefined}
             aria-label={seat ? `工位 ${item.label}，${occupant?.name ?? statusLabel[state]}` : item.label}
+            aria-pressed={seat ? item.id === selectedId : undefined}
             onClick={seat ? () => onSelect(item) : undefined}
             onKeyDown={seat ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(item); } } : undefined}>
             <title>{seat ? `${item.label} 号 · ${occupant?.name ?? statusLabel[state]}${occupant?.adviser ? ` · 导师 ${occupant.adviser}` : ""}` : item.label}</title>
@@ -95,7 +96,7 @@ export function RoomPlan({ room, query, onSelect }: {
     {unplaced.length > 0 && <section className="unplaced-seats" aria-label="位置待核对工位">
       <header><strong>位置待核对</strong><span>{unplaced.length} 处 · 原表未提供唯一位置，暂列于此</span></header>
       <div>{unplaced.map((item) => item.type === "seat" ? <button key={item.id}
-        className={`unplaced-seat ${item.seat?.display_state ?? "unavailable"} ${!matches(item) ? "dimmed" : ""}`}
+        className={`unplaced-seat ${item.seat?.display_state ?? "unavailable"} ${!matches(item) ? "dimmed" : ""} ${item.id === selectedId ? "selected-seat" : ""}`}
         onClick={() => onSelect(item)}><b>{item.label}</b><span>{item.seat?.occupant?.name ?? statusLabel[item.seat?.display_state ?? "unavailable"]}</span></button>
         : <span className="unplaced-equipment" key={item.id}>{item.label}</span>)}</div>
     </section>}

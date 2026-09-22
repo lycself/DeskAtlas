@@ -29,7 +29,7 @@ export function AdminOverview({ onNavigate, active = true }: { active?: boolean;
         <button className={data.totals.incomplete_students ? "attention" : ""} onClick={() => onNavigate("students")}><strong>{data.totals.incomplete_students}</strong><span>信息待补全</span><ArrowUpRight /></button>
       </div>
       <div className="overview-grid">
-        <section className="flat-section"><header><div><h2>专业分布</h2><p>当前有效工位中的学生</p></div></header><div className="bar-list">{data.majors.map((item) => <div key={item.name}><span>{item.name}</span><i><b style={{ width: `${(item.count / maxMajor) * 100}%` }} /></i><strong>{item.count}</strong></div>)}</div></section>
+        <section className="flat-section"><header><div><h2>教研中心分布</h2><p>当前有效工位中的学生</p></div></header><div className="bar-list">{data.majors.map((item) => <div key={item.name}><span>{item.name}</span><i><b style={{ width: `${(item.count / maxMajor) * 100}%` }} /></i><strong>{item.count}</strong></div>)}</div></section>
         <section className="flat-section"><header><div><h2>导师分布</h2><p>按当前工位人数排序</p></div></header><div className="bar-list compact">{data.advisers.map((item) => <div key={item.name}><span>{item.name}</span><i><b style={{ width: `${(item.count / maxAdviser) * 100}%` }} /></i><strong>{item.count}</strong></div>)}</div></section>
       </div>
     </div>

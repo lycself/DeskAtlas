@@ -39,6 +39,7 @@ class Room(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    is_virtual: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     building: Mapped[str | None] = mapped_column(String(120), nullable=True)
     floor: Mapped[str | None] = mapped_column(String(60), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -79,10 +80,24 @@ class Major(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
 
+class Teacher(Base, TimestampMixin):
+    __tablename__ = "teachers"
+    __table_args__ = (UniqueConstraint("name", "major_id", name="uq_teacher_center_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    title: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    role: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    major_id: Mapped[int] = mapped_column(ForeignKey("majors.id", ondelete="RESTRICT"), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    major: Mapped[Major] = relationship()
+
+
 class Student(Base, TimestampMixin):
     __tablename__ = "students"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     student_no: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(80), index=True)
     adviser: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)

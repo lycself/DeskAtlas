@@ -35,10 +35,10 @@ type Section = "overview" | "applications" | "rooms" | "students" | "import" | "
 const sections: Array<{ id: Section; label: string; icon: typeof Map }> = [
   { id: "overview", label: "运行概览", icon: LayoutDashboard },
   { id: "applications", label: "申请审批", icon: Activity },
-  { id: "rooms", label: "房间与平面图", icon: Map },
+  { id: "rooms", label: "房间与工位", icon: Map },
   { id: "students", label: "学生与工位", icon: Users },
   { id: "import", label: "数据导入", icon: FileSpreadsheet },
-  { id: "settings", label: "专业、邮件与日志", icon: Settings },
+  { id: "settings", label: "教研中心与设置", icon: Settings },
 ];
 
 export function AdminPortal() {

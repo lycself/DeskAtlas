@@ -42,7 +42,7 @@ def test_dynamic_year_range_and_school_email() -> None:
         program_level="硕士",
         major_id=1,
     )
-    assert str(payload.email) == "student@stu.xmu.edu"
+    assert str(payload.email) == "123@stu.xmu.edu.cn"
 
 
 def test_room_affiliations_are_public_and_preserved_by_partial_updates() -> None:

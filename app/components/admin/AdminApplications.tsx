@@ -113,11 +113,11 @@ export function AdminApplications({ active = true }: { active?: boolean }) {
                   <label><span>学号</span><input value={form.student_no} onChange={(e) => setForm({ ...form, student_no: e.target.value })} />{originalHint("student_no", form.student_no)}</label>
                 </div>
                 <label><span>导师全名</span><input value={form.adviser} onChange={(e) => setForm({ ...form, adviser: e.target.value })} />{originalHint("adviser", form.adviser)}</label>
-                <label><span>学生邮箱</span><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />{originalHint("email", form.email)}</label>
+                <label><span>学生邮箱</span><input readOnly aria-label="学生邮箱（根据学号自动生成）" placeholder="根据学号自动生成" value={form.student_no.trim() ? `${form.student_no.trim()}@stu.xmu.edu.cn` : ""} />{originalHint("email", form.email)}</label>
                 <div className="field-grid three">
                   <label><span>年级</span><select value={form.enrollment_year} onChange={(e) => setForm({ ...form, enrollment_year: e.target.value })}>{options?.years.map((year) => <option key={year}>{year}</option>)}</select>{originalHint("enrollment_year", form.enrollment_year)}</label>
                   <label><span>培养层次</span><select value={form.program_level} onChange={(e) => setForm({ ...form, program_level: e.target.value })}>{options?.program_levels.map((level) => <option key={level}>{level}</option>)}</select>{originalHint("program_level", form.program_level)}</label>
-                  <label><span>专业</span><select value={form.major_id} onChange={(e) => setForm({ ...form, major_id: e.target.value })}>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select>{originalHint("major_id", form.major_id, (value) => options?.majors.find((major) => String(major.id) === value)?.name)}</label>
+                  <label><span>教研中心</span><select value={form.major_id} onChange={(e) => setForm({ ...form, major_id: e.target.value })}>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select>{originalHint("major_id", form.major_id, (value) => options?.majors.find((major) => String(major.id) === value)?.name)}</label>
                 </div>
                 <label><span>拒绝原因（可留空）</span><textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="填写后会随结果邮件发送给学生" /></label>
                 <div className="review-actions"><button type="button" className="danger-action" disabled={busy} onClick={() => review("reject")}><X size={17} />拒绝</button><button type="button" className="primary-action" disabled={busy} onClick={() => review("approve")}><Check size={17} />同意并分配</button></div>

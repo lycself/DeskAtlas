@@ -195,3 +195,11 @@ body:has(.admin-shell) { background: #f3f6fa; }
 .smtp-settings .primary-action { align-self: flex-start; width: auto; padding-inline: 20px; }
 .smtp-settings .smtp-test { flex-direction: row; align-items: center; }
 .smtp-settings .smtp-test input { min-width: 0; flex: 1; }
+.student-tools > select { flex: 0 1 200px; width: 200px; }
+.student-tools > .check-control, .student-tools > button { flex-shrink: 0; white-space: nowrap; }
+.teacher-settings form { max-width: 900px; margin: 24px 0 30px; }
+.teacher-settings form .check-control { margin: 16px 0; }
+.teacher-settings .student-tools { flex-wrap: wrap; }
+.teacher-settings .student-tools > label { flex: 0 1 240px; }
+.teacher-settings .student-tools > input { flex: 1; min-width: 180px; max-width: 460px; }
+.teacher-settings .student-tools > span { white-space: nowrap; color: var(--ink-soft); font-size: 13px; }

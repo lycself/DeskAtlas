@@ -59,6 +59,7 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
   const [options, setOptions] = useState<Bootstrap | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
+  const [placement, setPlacement] = useState("");
   const [incompleteOnly, setIncompleteOnly] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<StudentForm>(blank);
@@ -71,7 +72,7 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
     const request = ++requestId.current;
     setLoading(true); setError("");
     try {
-      const params = new URLSearchParams({ offset: String(page * 30), limit: "30", q: query, incomplete_only: String(incompleteOnly) });
+      const params = new URLSearchParams({ offset: String(page * 30), limit: "30", q: query, placement, incomplete_only: String(incompleteOnly) });
       const rows = await api<{ items: Student[]; total: number }>(`/api/admin/student-directory?${params}`);
       if (request !== requestId.current) return;
       setStudents(rows.items); setTotal(rows.total);
@@ -81,7 +82,7 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
     } catch (caught) {
       if (request === requestId.current) setError(caught instanceof Error ? caught.message : "加载学生失败");
     } finally { if (request === requestId.current) setLoading(false); }
-  }, [incompleteOnly, page, query]);
+  }, [incompleteOnly, page, query, placement]);
 
   useEffect(() => {
     if (!active) return;
@@ -223,13 +224,14 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
       <fieldset disabled={busy}>
       <div className="student-tools">
         <label className="search-field"><Search size={16} /><input placeholder="搜索姓名、学号或导师" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} /></label>
+        <select aria-label="工位分组" value={placement} onChange={(event) => { setPlacement(event.target.value); setPage(0); }}><option value="">全部工位分组</option><option value="physical">实际工位</option><option value="翔安">翔安</option><option value="未被分配">未被分配</option></select>
         <label className="check-control"><input type="checkbox" checked={incompleteOnly} onChange={(event) => { setIncompleteOnly(event.target.checked); setPage(0); }} />只看信息待补全</label>
         <button disabled={loading} onClick={load}><RefreshCw size={15} />刷新</button>
       </div>
 
       <section className="seat-table-wrap student-table">
         <table className="data-table student-data-table">
-          <thead><tr><th>学生</th><th>导师</th><th>专业</th><th>当前工位</th><th>资料</th><th /></tr></thead>
+          <thead><tr><th>学生</th><th>导师</th><th>教研中心</th><th>当前工位</th><th>资料</th><th /></tr></thead>
           <tbody>
             {!filtered.length && <tr><td colSpan={6} className="table-empty">{loading ? "正在加载学生…" : "没有匹配的学生"}</td></tr>}
             {filtered.map((student) => {
@@ -271,11 +273,11 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
                                   <label><span>姓名</span><input required value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} /></label>
                                   <label><span>学号</span><input value={editForm.student_no} onChange={(event) => setEditForm({ ...editForm, student_no: event.target.value })} /></label>
                                   <label><span>导师全名</span><input value={editForm.adviser} onChange={(event) => setEditForm({ ...editForm, adviser: event.target.value })} /></label>
-                                  <label><span>学生邮箱</span><input type="email" placeholder="name@stu.xmu.edu" value={editForm.email} onChange={(event) => setEditForm({ ...editForm, email: event.target.value })} /></label>
+                                  <label><span>学生邮箱</span><input readOnly aria-label="学生邮箱（根据学号自动生成）" placeholder="根据学号自动生成" value={editForm.student_no.trim() ? `${editForm.student_no.trim()}@stu.xmu.edu.cn` : ""} /></label>
                                   <label><span>年级</span><select value={editForm.enrollment_year} onChange={(event) => setEditForm({ ...editForm, enrollment_year: event.target.value })}><option value="">待补全</option>{options?.years.map((year) => <option key={year}>{year}</option>)}</select></label>
                                   <label><span>培养层次</span><select value={editForm.program_level} onChange={(event) => setEditForm({ ...editForm, program_level: event.target.value })}><option value="">待补全</option>{options?.program_levels.map((level) => <option key={level}>{level}</option>)}</select></label>
                                 </div>
-                                <label><span>专业</span><select value={editForm.major_id} onChange={(event) => setEditForm({ ...editForm, major_id: event.target.value })}><option value="">待补全</option>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select></label>
+                                <label><span>教研中心</span><select value={editForm.major_id} onChange={(event) => setEditForm({ ...editForm, major_id: event.target.value })}><option value="">待补全</option>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select></label>
                                 <button className="primary-action compact"><Save size={15} />保存资料</button>
                               </form>
                             ) : (
@@ -310,7 +312,7 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
       {showCreate && (
         <div className="modal-backdrop">
           <form className="modal-panel glass-surface" onSubmit={create} aria-busy={busy}>
-            <header><h2>直接录入学生</h2><button type="button" aria-label="关闭" onClick={() => setShowCreate(false)}>×</button></header>
+            <header><h2>直接录入学生</h2><button type="button" aria-label="关闭" onClick={() => setShowCreate(false)}><X size={16} /></button></header>
             <p>除姓名外，其他信息可以稍后补全。</p>
             {error && <p className="form-error">{error}</p>}
             <fieldset disabled={busy}>
@@ -319,13 +321,13 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
               <label><span>学号</span><input value={form.student_no} onChange={(event) => setForm({ ...form, student_no: event.target.value })} /></label>
             </div>
             <label><span>导师全名</span><input value={form.adviser} onChange={(event) => setForm({ ...form, adviser: event.target.value })} /></label>
-            <label><span>学生邮箱</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+            <label><span>学生邮箱</span><input readOnly aria-label="学生邮箱（根据学号自动生成）" placeholder="根据学号自动生成" value={form.student_no.trim() ? `${form.student_no.trim()}@stu.xmu.edu.cn` : ""} /></label>
             <div className="field-grid three">
               <label><span>年级</span><select value={form.enrollment_year} onChange={(event) => setForm({ ...form, enrollment_year: event.target.value })}><option value="">待补全</option>{options?.years.map((year) => <option key={year}>{year}</option>)}</select></label>
               <label><span>培养层次</span><select value={form.program_level} onChange={(event) => setForm({ ...form, program_level: event.target.value })}><option value="">待补全</option>{options?.program_levels.map((level) => <option key={level}>{level}</option>)}</select></label>
-              <label><span>专业</span><select value={form.major_id} onChange={(event) => setForm({ ...form, major_id: event.target.value })}><option value="">待补全</option>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select></label>
+              <label><span>教研中心</span><select value={form.major_id} onChange={(event) => setForm({ ...form, major_id: event.target.value })}><option value="">待补全</option>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select></label>
             </div>
-            <label><span>直接分配工位</span><select value={form.seat_id} onChange={(event) => setForm({ ...form, seat_id: event.target.value })}><option value="">暂不分配</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select></label>
+            <label><span>直接分配工位</span><select value={form.seat_id} onChange={(event) => setForm({ ...form, seat_id: event.target.value })}><option value="">未被分配（虚拟工位）</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select></label>
             <button className="primary-action">保存学生</button>
             </fieldset>
           </form>

@@ -12,7 +12,7 @@ HEADER_ALIASES = {
     "seat": {"座位号", "工位号", "座位", "工位"},
     "name": {"姓名", "学生姓名"},
     "adviser": {"导师", "指导教师"},
-    "year": {"年级", "入学年份"},
+    "year": {"年级", "入学年份", "年级（202X级）"},
     "level": {"培养层次（硕/博）", "培养层次", "学历层次"},
     "major": {"专业", "教研中心", "方向"},
     "note": {"备注", "说明"},
@@ -87,7 +87,7 @@ def preview_workbook(content: bytes) -> dict[str, Any]:
             warnings.append("座位号缺失")
 
         lower_name = name.lower()
-        equipment = any(token in lower_name for token in ("打印机", "柜", "设备"))
+        equipment = any(token in lower_name for token in ("打印机", "柜", "设备", "服务器"))
         kind = "equipment" if equipment else "student"
         if kind == "student" and not name:
             kind = "empty"
@@ -121,4 +121,3 @@ def preview_workbook(content: bytes) -> dict[str, Any]:
             "equipment": sum(row["kind"] == "equipment" for row in result),
         },
     }
-

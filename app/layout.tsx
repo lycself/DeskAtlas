@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 import "./public-space.css";
 import "./admin-workspace.css";
+import "./workspace-ui.css";
 
 export const metadata: Metadata = {
   title: "DeskAtlas · 研究生工位地图",

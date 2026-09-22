@@ -13,3 +13,4 @@ uploads/
 *.tsbuildinfo
 .DS_Store
 /*.xlsx
+/最新安排/*.xlsx

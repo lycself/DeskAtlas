@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from .student_rules import student_email
+
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
@@ -26,13 +28,12 @@ class StudentData(BaseModel):
     def trim_required_text(cls, value: Any) -> Any:
         return value.strip() if isinstance(value, str) else value
 
-    @field_validator("email")
+    @model_validator(mode="before")
     @classmethod
-    def require_student_email(cls, value: EmailStr) -> EmailStr:
-        normalized = str(value).strip().lower()
-        if not normalized.endswith("@stu.xmu.edu"):
-            raise ValueError("请使用以 @stu.xmu.edu 结尾的学生邮箱")
-        return normalized
+    def derive_email(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            value = {**value, "email": student_email(value.get("student_no"))}
+        return value
 
     @field_validator("enrollment_year")
     @classmethod
@@ -77,7 +78,7 @@ class RoomCreate(BaseModel):
     @classmethod
     def normalize_majors(cls, values: list[str]) -> list[str]:
         if any(not value.strip() or len(value.strip()) > 120 for value in values):
-            raise ValueError("专业名称不能为空且不能超过120字")
+            raise ValueError("教研中心名称不能为空且不能超过120字")
         return list(dict.fromkeys(value.strip() for value in values))
 
 
@@ -157,6 +158,13 @@ class DirectStudentCreate(BaseModel):
     major_id: int | None = None
     seat_id: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def derive_email(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            value = {**value, "email": student_email(value.get("student_no"))}
+        return value
+
     @field_validator("name", "student_no", "adviser", mode="before")
     @classmethod
     def trim_optional_text(cls, value: Any) -> Any:
@@ -164,8 +172,6 @@ class DirectStudentCreate(BaseModel):
 
     @model_validator(mode="after")
     def set_complete_rule(self) -> "DirectStudentCreate":
-        if self.email is not None and not str(self.email).lower().endswith("@stu.xmu.edu"):
-            raise ValueError("请使用以 @stu.xmu.edu 结尾的学生邮箱")
         if self.enrollment_year is not None and self.enrollment_year not in allowed_years():
             raise ValueError("年级不在当前允许范围内")
         return self
@@ -179,6 +185,13 @@ class StudentUpdate(BaseModel):
     enrollment_year: int | None = None
     program_level: Literal["硕士", "博士"] | None = None
     major_id: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def ignore_supplied_email(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            value = {key: item for key, item in value.items() if key != "email"}
+        return value
 
     @field_validator("name", mode="before")
     @classmethod
@@ -194,8 +207,6 @@ class StudentUpdate(BaseModel):
 
     @model_validator(mode="after")
     def validate_update_options(self) -> "StudentUpdate":
-        if self.email is not None and not str(self.email).lower().endswith("@stu.xmu.edu"):
-            raise ValueError("请使用以 @stu.xmu.edu 结尾的学生邮箱")
         if self.enrollment_year is not None and self.enrollment_year not in allowed_years():
             raise ValueError("年级不在当前允许范围内")
         return self
@@ -222,3 +233,16 @@ class TestEmail(BaseModel):
 
 class ImportCommit(BaseModel):
     rows: list[dict[str, Any]]
+
+
+class TeacherData(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    major_id: int
+    title: str | None = Field(default=None, max_length=80)
+    role: str | None = Field(default=None, max_length=120)
+    is_active: bool = True
+
+    @field_validator("name", "title", "role", mode="before")
+    @classmethod
+    def trim_text(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value

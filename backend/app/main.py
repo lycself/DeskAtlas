@@ -28,6 +28,7 @@ from .models import (
     Seat,
     SmtpSetting,
     Student,
+    Teacher,
     utcnow,
 )
 from .schemas import (
@@ -46,8 +47,10 @@ from .schemas import (
     SmtpConfig,
     StudentUpdate,
     TestEmail,
+    TeacherData,
     allowed_years,
 )
+from .student_rules import ensure_virtual_rooms, place_unassigned, student_email, virtual_seat, VIRTUAL_ROOMS
 from .security import (
     check_login_rate_limit,
     clear_login_attempts,
@@ -64,8 +67,9 @@ INITIAL_MAJORS = [
     "理论物理",
     "凝聚态物理",
     "光学",
-    "生物物理和软凝聚态",
-    "天体物理与宇宙学",
+    "软物质物理",
+    "半导体物理",
+    "多信使天体物理",
 ]
 
 
@@ -82,6 +86,11 @@ def seed_reference_data(db: Session) -> None:
         existing = db.scalar(select(Major).where(Major.name == name))
         if not existing:
             db.add(Major(name=name, sort_order=order, is_active=True))
+    ensure_virtual_rooms(db)
+    for student in db.scalars(select(Student).where(Student.is_archived.is_(False), ~Student.assignments.any(Assignment.ended_at.is_(None)))):
+        place_unassigned(db, student)
+    for student in db.scalars(select(Student)):
+        student.email = student_email(student.student_no)
     db.commit()
 
 
@@ -139,6 +148,8 @@ def pending_application_for_seat(db: Session, seat_id: str, exclude_id: int | No
 
 
 def seat_eligibility(db: Session, seat: Seat, exclude_application_id: int | None = None) -> str | None:
+    if seat.room.is_virtual:
+        return "虚拟工位请通过学生管理分组调整"
     if seat.is_archived or seat.room.is_archived:
         return "该工位已归档"
     if seat.admin_status != "active":
@@ -208,6 +219,12 @@ def serialize_room(db: Session, room: Room, *, draft: bool = False, seat_data: d
     all_seats = seat_data if seat_data is not None else room_seat_data(db, [room])
     seats = {seat.id: all_seats[seat.id] for seat in room.seats if seat.id in all_seats}
     items: list[dict[str, Any]] = []
+    if room.is_virtual and not summary_only:
+        layout = [dict(id=seat_id, type="seat", label=room.name, x=0, y=0,
+                       width=76, height=48, rotation=0)
+                  for seat_id, seat in seats.items() if seat["occupant"]]
+    if room.is_virtual:
+        seats = {key: value for key, value in seats.items() if value["occupant"]}
     for raw_item in layout or []:
         item = dict(raw_item)
         if item.get("type") == "seat":
@@ -219,6 +236,7 @@ def serialize_room(db: Session, room: Room, *, draft: bool = False, seat_data: d
     return {
         "id": room.id,
         "name": room.name,
+        "is_virtual": room.is_virtual,
         "building": room.building,
         "floor": room.floor,
         "description": room.description,
@@ -277,7 +295,7 @@ def serialize_student(db: Session, student: Student, *, records: list[Assignment
         "current_assignment": {
             "assignment_id": current.id,
             "seat_id": current.seat_id,
-            "seat_code": current.seat.code,
+            "seat_code": "虚拟工位" if current.seat.room.is_virtual else current.seat.code,
             "room_id": current.seat.room.id,
             "room_name": current.seat.room.name,
         }
@@ -371,7 +389,7 @@ def create_application(payload: ApplicationCreate, db: Db) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="工位不存在")
     major = db.scalar(select(Major).where(Major.id == payload.major_id, Major.is_active.is_(True)))
     if not major:
-        raise HTTPException(status_code=422, detail="所选专业已停用，请重新选择")
+        raise HTTPException(status_code=422, detail="所选教研中心已停用，请重新选择")
     if message := seat_eligibility(db, seat):
         raise HTTPException(status_code=409, detail=message)
     pending = db.scalar(
@@ -384,7 +402,7 @@ def create_application(payload: ApplicationCreate, db: Db) -> dict[str, Any]:
         .join(Student, Student.id == Assignment.student_id)
         .where(Student.student_no == payload.student_no, Assignment.ended_at.is_(None))
     )
-    if assigned:
+    if assigned and not assigned.seat.room.is_virtual:
         raise HTTPException(status_code=409, detail="该学号已经分配工位，如需调整请联系管理员")
 
     data = payload.model_dump(mode="json", exclude={"seat_id"})
@@ -406,12 +424,12 @@ def create_application(payload: ApplicationCreate, db: Db) -> dict[str, Any]:
 
 @app.get("/api/admin/overview")
 def admin_overview(db: Db, _: Admin) -> dict[str, Any]:
-    rooms = db.scalars(select(Room).options(joinedload(Room.seats)).where(Room.is_archived.is_(False))).unique().all()
+    rooms = db.scalars(select(Room).options(joinedload(Room.seats)).where(Room.is_archived.is_(False), Room.is_virtual.is_(False))).unique().all()
     totals = Counter()
     for room in rooms:
         totals.update(serialize_room(db, room, draft=not room.is_published)["seat_counts"])
     pending = db.scalar(select(func.count()).select_from(Application).where(Application.status == "pending")) or 0
-    incomplete = db.scalar(select(func.count()).select_from(Student).where(Student.is_complete.is_(False))) or 0
+    incomplete = db.scalar(select(func.count()).select_from(Student).where(Student.is_complete.is_(False), Student.is_archived.is_(False))) or 0
     active_students = db.scalar(select(func.count()).select_from(Assignment).where(Assignment.ended_at.is_(None))) or 0
 
     major_rows = db.execute(
@@ -499,7 +517,7 @@ def review_application(application_id: int, payload: ApplicationReview, db: Db, 
     if payload.action == "approve":
         major = db.scalar(select(Major).where(Major.id == payload.data.major_id, Major.is_active.is_(True)))
         if not major:
-            raise HTTPException(status_code=422, detail="所选专业已停用")
+            raise HTTPException(status_code=422, detail="所选教研中心已停用")
         if message := seat_eligibility(db, application.seat, exclude_application_id=application.id):
             raise HTTPException(status_code=409, detail=message)
         existing_assignment = db.scalar(
@@ -507,14 +525,18 @@ def review_application(application_id: int, payload: ApplicationReview, db: Db, 
             .join(Student, Student.id == Assignment.student_id)
             .where(Student.student_no == payload.data.student_no, Assignment.ended_at.is_(None))
         )
-        if existing_assignment:
+        if existing_assignment and not existing_assignment.seat.room.is_virtual:
             raise HTTPException(status_code=409, detail="该学号已经拥有正式工位")
+        if existing_assignment:
+            existing_assignment.ended_at = utcnow()
+            db.flush()
         student = db.scalar(select(Student).where(Student.student_no == payload.data.student_no))
         if not student:
             student = Student(student_no=payload.data.student_no, name=payload.data.name)
             db.add(student)
             db.flush()
         student.name = payload.data.name
+        student.is_archived = False
         student.adviser = payload.data.adviser
         student.email = str(payload.data.email)
         student.enrollment_year = payload.data.enrollment_year
@@ -590,6 +612,8 @@ def update_room(room_id: int, payload: RoomUpdate, db: Db, _: Admin) -> dict[str
     room = db.scalar(select(Room).options(joinedload(Room.seats)).where(Room.id == room_id))
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
+    if room.is_virtual:
+        raise HTTPException(status_code=422, detail="系统虚拟工位不能改名或归档，请在学生管理中调整人员")
     values = payload.model_dump(exclude_unset=True)
     if values.get("is_archived"):
         seat_ids = [seat.id for seat in room.seats]
@@ -627,6 +651,8 @@ def save_room_layout(room_id: int, payload: LayoutSave, db: Db, _: Admin) -> dic
     room = db.scalar(select(Room).options(joinedload(Room.seats)).where(Room.id == room_id))
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
+    if room.is_virtual:
+        raise HTTPException(status_code=422, detail="虚拟工位不使用平面图")
     existing_by_id = {seat.id: seat for seat in room.seats}
     existing_by_code = {seat.code: seat for seat in room.seats}
     normalized: list[dict[str, Any]] = []
@@ -664,6 +690,8 @@ def publish_room_layout(room_id: int, db: Db, _: Admin) -> dict[str, Any]:
     room = db.scalar(select(Room).options(joinedload(Room.seats)).where(Room.id == room_id))
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
+    if room.is_virtual:
+        raise HTTPException(status_code=422, detail="虚拟工位不使用平面图")
     draft_seat_ids = {str(item["id"]) for item in room.draft_layout or [] if item.get("type") == "seat"}
     for seat in room.seats:
         if seat.id in draft_seat_ids:
@@ -698,9 +726,20 @@ def update_seat_status(seat_id: str, payload: SeatStatusUpdate, db: Db, _: Admin
     return seat_public_data(db, seat)
 
 
+@app.get("/api/admin/seats/{seat_id}/context")
+def seat_admin_context(seat_id: str, db: Db, _: Admin) -> dict[str, Any]:
+    seat = db.get(Seat, seat_id)
+    if not seat or seat.is_archived or seat.room.is_archived:
+        raise HTTPException(status_code=404, detail="工位不存在")
+    assignment = active_assignment_for_seat(db, seat_id)
+    pending = pending_application_for_seat(db, seat_id)
+    return {"student": serialize_student(db, assignment.student) if assignment else None,
+            "pending_application_id": pending.id if pending else None}
+
+
 @app.get("/api/admin/students")
 def list_students(db: Db, _: Admin, incomplete_only: bool = False) -> list[dict[str, Any]]:
-    query = select(Student).options(joinedload(Student.major)).order_by(Student.name)
+    query = select(Student).options(joinedload(Student.major)).where(Student.is_archived.is_(False)).order_by(Student.name)
     if incomplete_only:
         query = query.where(Student.is_complete.is_(False))
     students = db.scalars(query).unique().all()
@@ -710,8 +749,12 @@ def list_students(db: Db, _: Admin, incomplete_only: bool = False) -> list[dict[
 
 @app.get("/api/admin/student-directory")
 def student_directory(db: Db, _: Admin, q: str = "", incomplete_only: bool = False,
+                      placement: str = "",
                       offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100)) -> dict[str, Any]:
-    filters = []
+    filters = [Student.is_archived.is_(False)]
+    if placement:
+        room_filter = Room.is_virtual.is_(False) if placement == "physical" else Room.name == placement
+        filters.append(Student.assignments.any((Assignment.ended_at.is_(None)) & Assignment.seat.has(Seat.room.has(room_filter))))
     if incomplete_only:
         filters.append(Student.is_complete.is_(False))
     if q.strip():
@@ -741,12 +784,24 @@ def admin_options(db: Db, _: Admin) -> dict[str, Any]:
 @app.get("/api/admin/available-seats")
 def available_seats(db: Db, _: Admin) -> list[dict[str, Any]]:
     seats = db.scalars(select(Seat).options(joinedload(Seat.room)).join(Room).where(
-        Seat.is_archived.is_(False), Room.is_archived.is_(False), Seat.admin_status == "active",
+        Seat.is_archived.is_(False), Room.is_archived.is_(False), Room.is_virtual.is_(False), Seat.admin_status == "active",
         ~Seat.assignments.any(Assignment.ended_at.is_(None)),
         ~Seat.applications.any(Application.status == "pending"),
     ).order_by(Room.name, Seat.code)).all()
-    return [{"id": seat.id, "label": f"{seat.room.floor or infer_floor(seat.room.name) or '未设置楼层'} · {seat.room.name} · {seat.code}"}
+    return [{"id": f"virtual:{name}", "label": f"虚拟工位 · {name}"} for name in VIRTUAL_ROOMS] + [{"id": seat.id, "label": f"{seat.room.floor or infer_floor(seat.room.name) or '未设置楼层'} · {seat.room.name} · {seat.code}"}
             for seat in seats if any(item.get("id") == seat.id for item in seat.room.draft_layout or [])]
+
+
+def resolve_destination(db: Session, student: Student, destination: str) -> Seat | None:
+    if destination.startswith("virtual:"):
+        name = destination.removeprefix("virtual:")
+        if name not in VIRTUAL_ROOMS:
+            raise HTTPException(status_code=422, detail="虚拟工位不存在")
+        return virtual_seat(db, student, name)
+    seat = db.scalar(select(Seat).options(joinedload(Seat.room)).where(Seat.id == destination).with_for_update())
+    if seat and seat.room.is_virtual:
+        raise HTTPException(status_code=422, detail="请选择虚拟分组，不要使用个人虚拟编号")
+    return seat
 
 
 @app.post("/api/admin/students", status_code=201)
@@ -761,14 +816,16 @@ def create_student(payload: DirectStudentCreate, db: Db, _: Admin) -> dict[str, 
     db.add(student)
     db.flush()
     if payload.seat_id:
-        seat = db.scalar(select(Seat).options(joinedload(Seat.room)).where(Seat.id == payload.seat_id))
+        seat = resolve_destination(db, student, payload.seat_id)
         if not seat:
             db.rollback()
             raise HTTPException(status_code=404, detail="目标工位不存在")
-        if message := seat_eligibility(db, seat):
+        if message := (None if seat.room.is_virtual else seat_eligibility(db, seat)):
             db.rollback()
             raise HTTPException(status_code=409, detail=message)
         db.add(Assignment(student_id=student.id, seat_id=seat.id, source="admin"))
+    else:
+        place_unassigned(db, student)
     audit(db, "student.created", "student", student.id, after={"name": student.name, "seat_id": payload.seat_id})
     try:
         db.commit()
@@ -785,11 +842,7 @@ def update_student(student_id: int, payload: StudentUpdate, db: Db, _: Admin) ->
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
     values = payload.model_dump(exclude_unset=True)
-    if values.get("email") is not None:
-        email = str(values["email"])
-        if not email.lower().endswith("@stu.xmu.edu"):
-            raise HTTPException(status_code=422, detail="请使用学生邮箱")
-        values["email"] = email.lower()
+    values["email"] = student_email(values.get("student_no", student.student_no))
     before = {key: getattr(student, key) for key in values}
     for key, value in values.items():
         setattr(student, key, value)
@@ -815,16 +868,17 @@ def move_student(student_id: int, payload: MoveStudent, db: Db, _: Admin) -> dic
         .where(Assignment.student_id == student.id, Assignment.ended_at.is_(None))
         .with_for_update()
     )
-    target = db.scalar(select(Seat).options(joinedload(Seat.room)).where(Seat.id == payload.seat_id).with_for_update())
+    target = resolve_destination(db, student, payload.seat_id)
     if not target:
         raise HTTPException(status_code=404, detail="目标工位不存在")
     if current and current.seat_id == target.id:
         raise HTTPException(status_code=409, detail="学生已经在该工位")
-    if message := seat_eligibility(db, target):
+    if message := (None if target.room.is_virtual else seat_eligibility(db, target)):
         raise HTTPException(status_code=409, detail=message)
     before = {"seat_id": current.seat_id if current else None}
     if current:
         current.ended_at = utcnow()
+        db.flush()
     db.add(Assignment(student_id=student.id, seat_id=target.id, source="move", note=payload.note))
     audit(db, "assignment.moved", "student", student.id, before, {"seat_id": target.id, "note": payload.note})
     try:
@@ -846,6 +900,8 @@ def release_student(student_id: int, db: Db, _: Admin) -> dict[str, Any]:
     if not current:
         raise HTTPException(status_code=409, detail="该学生当前没有工位")
     current.ended_at = utcnow()
+    db.flush()
+    place_unassigned(db, student)
     audit(db, "assignment.released", "student", student.id, {"seat_id": current.seat_id}, {"seat_id": None})
     db.commit()
     return serialize_student(db, student)
@@ -870,7 +926,7 @@ def create_major(payload: MajorCreate, db: Db, _: Admin) -> dict[str, Any]:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="专业名称已存在") from exc
+        raise HTTPException(status_code=409, detail="教研中心名称已存在") from exc
     db.refresh(major)
     return {"id": major.id, "name": major.name, "sort_order": major.sort_order, "is_active": major.is_active}
 
@@ -879,7 +935,7 @@ def create_major(payload: MajorCreate, db: Db, _: Admin) -> dict[str, Any]:
 def update_major(major_id: int, payload: MajorUpdate, db: Db, _: Admin) -> dict[str, Any]:
     major = db.get(Major, major_id)
     if not major:
-        raise HTTPException(status_code=404, detail="专业不存在")
+        raise HTTPException(status_code=404, detail="教研中心不存在")
     values = payload.model_dump(exclude_unset=True)
     before = {key: getattr(major, key) for key in values}
     for key, value in values.items():
@@ -889,9 +945,49 @@ def update_major(major_id: int, payload: MajorUpdate, db: Db, _: Admin) -> dict[
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="专业名称已存在") from exc
+        raise HTTPException(status_code=409, detail="教研中心名称已存在") from exc
     db.refresh(major)
     return {"id": major.id, "name": major.name, "sort_order": major.sort_order, "is_active": major.is_active}
+
+
+def teacher_data(teacher: Teacher) -> dict[str, Any]:
+    return {"id": teacher.id, "name": teacher.name, "title": teacher.title, "role": teacher.role,
+            "major_id": teacher.major_id, "is_active": teacher.is_active}
+
+
+@app.get("/api/admin/teachers")
+def list_teachers(db: Db, _: Admin) -> list[dict[str, Any]]:
+    return [teacher_data(t) for t in db.scalars(select(Teacher).order_by(Teacher.major_id, Teacher.name))]
+
+
+@app.post("/api/admin/teachers", status_code=201)
+def create_teacher(payload: TeacherData, db: Db, _: Admin) -> dict[str, Any]:
+    return save_teacher(db, Teacher(), payload, create=True)
+
+
+@app.put("/api/admin/teachers/{teacher_id}")
+def update_teacher(teacher_id: int, payload: TeacherData, db: Db, _: Admin) -> dict[str, Any]:
+    teacher = db.get(Teacher, teacher_id)
+    if not teacher:
+        raise HTTPException(status_code=404, detail="教师不存在")
+    return save_teacher(db, teacher, payload)
+
+
+def save_teacher(db: Session, teacher: Teacher, payload: TeacherData, *, create: bool = False) -> dict[str, Any]:
+    if not db.get(Major, payload.major_id):
+        raise HTTPException(status_code=422, detail="教研中心不存在")
+    before = None if create else teacher_data(teacher)
+    for key, value in payload.model_dump().items():
+        setattr(teacher, key, value)
+    db.add(teacher)
+    try:
+        db.flush()
+        audit(db, "teacher.created" if create else "teacher.updated", "teacher", teacher.id, before, teacher_data(teacher))
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="该教研中心已有同名教师") from exc
+    return teacher_data(teacher)
 
 
 @app.get("/api/admin/smtp")
