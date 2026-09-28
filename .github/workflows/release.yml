@@ -4,15 +4,27 @@ on:
   push:
     tags:
       - "v*"
+    # Pushes to main only build and upload the installer as a workflow artifact; publishing needs a v* tag.
+    branches:
+      - main
+    # Path filters apply to branch pushes only; tag pushes always build.
+    paths-ignore:
+      - "**.md"
+      - "ticketly/**"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (without v), used for test builds that are not published"
+        description: "Version to build (without v), used for test builds that are not published; pushes to main build 0.0.0"
         required: true
         default: "0.0.0"
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  # A newer push to main supersedes a running test build; tag builds always finish.
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 jobs:
   windows:
@@ -30,7 +42,7 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             echo "value=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
-            echo "value=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "value=${{ github.event.inputs.version || '0.0.0' }}" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: pnpm/action-setup@v4
