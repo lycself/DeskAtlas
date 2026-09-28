@@ -17,7 +17,7 @@ import {
 import { FormEvent, Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "@/app/lib/api";
-import type { Bootstrap, Student } from "@/app/lib/types";
+import type { AdminJump, Bootstrap, Student } from "@/app/lib/types";
 
 import { DetailDialog } from "../DetailDialog";
 import { StudentProfile } from "../StudentProfile";
@@ -27,7 +27,7 @@ type StudentForm = StudentFormValues & { seat_id: string };
 
 const blank: StudentForm = { ...emptyStudentForm, seat_id: "" };
 
-export function AdminStudents({ active = true }: { active?: boolean }) {
+export function AdminStudents({ active = true, jump = null }: { active?: boolean; jump?: Extract<AdminJump, { section: "students" }> | null }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [freeSeats, setFreeSeats] = useState<Array<{ id: string; label: string }>>([]);
   const [page, setPage] = useState(0);
@@ -90,6 +90,11 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
     api<Student>(`/api/admin/students/${selectedId}`, { signal: controller.signal }).then(setDetail).catch((caught) => { if (!controller.signal.aborted) setError(caught.message); });
     return () => controller.abort();
   }, [selectedId, detailVersion]);
+  useEffect(() => {
+    if (!jump) return;
+    setQuery(jump.query); setPage(0); setPlacement(""); setIncompleteOnly(false);
+    setSelectedId(jump.studentId ?? null); setDetailTab("profile"); setDetail(null); setEditForm(null); setMoveSeat(""); setMessage("");
+  }, [jump]);
   const filtered = students;
   const selected = detail?.id === selectedId ? detail : students.find((student) => student.id === selectedId);
 

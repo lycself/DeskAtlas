@@ -1,11 +1,11 @@
 "use client";
 
 import { Archive, ArrowRightLeft, Armchair, Copy, Grid3X3, List, Plus, Redo2, RefreshCw, RotateCw, Save, Search, Settings2, Trash2, Undo2, Upload, X } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
-import type { LayoutItem, Major, Room, Student } from "@/app/lib/types";
+import type { AdminJump, LayoutItem, Major, Room, Student } from "@/app/lib/types";
 import { snappedDelta, alignItems, moveItems, itemBounds, type Alignment } from "@/app/lib/seat-layout";
 import { RoomPlan } from "../RoomPlan";
 import { SeatStudentPanel } from "./SeatStudentPanel";
@@ -46,7 +46,7 @@ function LayoutNumberField({ label, value, onChange }: { label: string; value: n
   return <label><span>{label}</span><input aria-label={label} type="number" step={1} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label>;
 }
 
-export function AdminRooms({ active = true }: { active?: boolean }) {
+export function AdminRooms({ active = true, jump = null }: { active?: boolean; jump?: Extract<AdminJump, { section: "rooms" }> | null }) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [majors, setMajors] = useState<Major[]>([]);
   const [room, setRoom] = useState<Room | null>(null);
@@ -80,6 +80,8 @@ export function AdminRooms({ active = true }: { active?: boolean }) {
   const panelBusy = useRef(false);
   const workbench = useRef<HTMLElement>(null);
   const [roomView, setRoomView] = useState<"map" | "list">("map");
+  const pendingSeat = useRef<{ roomId: number; seatId: string } | null>(null);
+  const [reveal, setReveal] = useState(0);
   const [roomForm, setRoomForm] = useState<RoomForm>(emptyRoomForm);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -146,11 +148,13 @@ export function AdminRooms({ active = true }: { active?: boolean }) {
     return () => window.removeEventListener("beforeunload", prevent);
   }, [dirty, metadataDirty]);
   const chooseRoom = (id: number) => {
-    if (id === selectedRoomId || busy || panelBusy.current) return;
-    if (panelDirty.current && !confirm("学生资料或工位备注尚未保存，放弃修改并切换房间？")) return;
+    if (id === selectedRoomId) return true;
+    if (busy || panelBusy.current) return false;
+    if (panelDirty.current && !confirm("学生资料或工位备注尚未保存，放弃修改并切换房间？")) return false;
     panelDirty.current = false;
-    if ((dirty || metadataDirty) && !confirm("当前房间有未保存的更改，确定放弃并切换房间？")) return;
+    if ((dirty || metadataDirty) && !confirm("当前房间有未保存的更改，确定放弃并切换房间？")) return false;
     setSelectedRoomId(id); setMessage("");
+    return true;
   };
   const updateRoom = (updated: Room, resetLayout = false) => {
     loadedRoom.current = updated; setRoom(updated);
@@ -362,11 +366,36 @@ export function AdminRooms({ active = true }: { active?: boolean }) {
     panelDirty.current = false; selectItem(item); setError("");
   };
   const changeMode = (next: "manage" | "edit") => {
-    if (panelBusy.current || busy || next === mode) return;
-    if (dirty || metadataDirty) { setError("请先保存布局与房间信息，再切换工作模式。"); return; }
-    if (panelDirty.current && !confirm("资料尚未保存，放弃修改并切换模式？")) return;
+    if (panelBusy.current || busy) return false;
+    if (next === mode) return true;
+    if (dirty || metadataDirty) { setError("请先保存布局与房间信息，再切换工作模式。"); return false; }
+    if (panelDirty.current && !confirm("资料尚未保存，放弃修改并切换模式？")) return false;
     panelDirty.current = false; setMode(next); setMovingStudent(null); setMoveTarget(null); setSelectedId(null); setSelectedIds([]); setError("");
+    return true;
   };
+  // A search result opens its room; a seat is selected once that room's layout has loaded.
+  const openJump = useEffectEvent((target: NonNullable<typeof jump>) => {
+    pendingSeat.current = null;
+    if (!chooseRoom(target.roomId)) return;
+    setQuery("");
+    if (target.seatId) pendingSeat.current = { roomId: target.roomId, seatId: target.seatId };
+  });
+  useEffect(() => { if (jump) openJump(jump); }, [jump]);
+  const selectPendingSeat = useEffectEvent(() => {
+    const target = pendingSeat.current;
+    if (!target || room?.id !== target.roomId || detailLoading) return;
+    pendingSeat.current = null;
+    const item = items.find((entry) => entry.id === target.seatId);
+    if (!item) { setError("该工位不在当前布局中，请刷新后重试。"); return; }
+    if (!changeMode("manage")) return;
+    selectManaged(item); setReveal((value) => value + 1);
+  });
+  useEffect(() => { selectPendingSeat(); }, [jump, room, items, detailLoading]);
+  useEffect(() => {
+    if (!reveal) return;
+    // Centred so the match clears the sticky header; virtual groups can list hundreds of people.
+    workbench.current?.querySelector(".managed-map .selected-seat, .managed-map .virtual-position.selected, .managed-seat-list tr.selected")?.scrollIntoView({ block: "center" });
+  }, [reveal]);
   const archiveRoom = async () => {
     if (!room || busy || panelBusy.current || !confirm(`归档房间“${room.name}”？归档后房间不再显示在列表和学生端。${dirty || metadataDirty || panelDirty.current ? "未保存的修改将被放弃。" : ""}`)) return;
     try { await api(`/api/admin/rooms/${room.id}`, { method: "PATCH", body: JSON.stringify({ is_archived: true }) }); setShowRoomSettings(false); await load(); setMessage(`房间 ${room.name} 已归档`); }

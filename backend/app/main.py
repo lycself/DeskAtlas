@@ -9,7 +9,7 @@ from typing import Any, Annotated
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import Text, cast, func, select, or_
+from sqlalchemy import Text, case, cast, func, select, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, defer
 
@@ -168,7 +168,10 @@ def seat_public_data(db: Session, seat: Seat, *, state: tuple | None = None) -> 
 
 
 def room_seat_data(db: Session, rooms: list[Room]) -> dict[str, dict[str, Any]]:
-    seats = [seat for room in rooms for seat in room.seats if not seat.is_archived]
+    return seat_state_data(db, [seat for room in rooms for seat in room.seats if not seat.is_archived])
+
+
+def seat_state_data(db: Session, seats: list[Seat]) -> dict[str, dict[str, Any]]:
     if not seats:
         return {}
     ids = [seat.id for seat in seats]
@@ -850,6 +853,106 @@ def get_student(student_id: int, db: Db, _: Admin) -> dict[str, Any]:
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
     return serialize_student(db, student)
+
+
+# A separator is required so `3011` is not read as seat 1 of room 301.
+SEAT_QUERY = re.compile(r"(?:\s*[-_·/#.:：]\s*|\s+|\s*[号室]\s*)(?:工位|座位)?\s*(?P<code>\S+?)\s*号?(?:工位|座位)?")
+
+
+def seat_code_query(room_name: str, text: str) -> str | None:
+    """`301 12`, `301-12` and `301号12号` all name seat 12 of room 301."""
+    if not text.lower().startswith(room_name.lower()):
+        return None
+    match = SEAT_QUERY.fullmatch(text[len(room_name):])
+    return match.group("code").lower() if match else None
+
+
+def room_search_rank(room: Room, needle: str) -> int | None:
+    name = room.name.lower()
+    if name == needle:
+        return 0
+    if name.startswith(needle):
+        return 1
+    if needle in name:
+        return 2
+    # Major names live in JSON, which SQLite stores escaped, so rooms are matched here rather than in SQL.
+    details = [room.floor or "", room.building or "", *(room.major_names or [])]
+    return 3 if any(needle in value.lower() for value in details) else None
+
+
+@app.get("/api/admin/search")
+def admin_search(db: Db, _: Admin, q: str = Query(default="", max_length=80)) -> dict[str, Any]:
+    """Grouped matches for the command palette. Every group is capped so each keystroke stays cheap."""
+    text = q.strip()
+    result: dict[str, Any] = {"students": [], "student_total": 0, "advisers": [], "rooms": [], "seats": [], "applications": []}
+    if not text:
+        return result
+    needle = text.lower()
+
+    rooms = db.scalars(select(Room).options(defer(Room.draft_layout), defer(Room.published_layout))
+                       .where(Room.is_archived.is_(False)).order_by(Room.name)).all()
+    ranked = sorted(((rank, room) for room in rooms if (rank := room_search_rank(room, needle)) is not None), key=lambda entry: entry[0])
+    matched_rooms = [room for _, room in ranked[:6]]
+
+    seat_matches: list[Seat] = []
+    for room in rooms:
+        code = None if room.is_virtual else seat_code_query(room.name, text)
+        if code is None:
+            continue
+        # Only seats on the draft layout are visible in the admin workbench.
+        layout_ids = [str(item["id"]) for item in room.draft_layout or [] if item.get("type") == "seat"]
+        candidates = db.scalars(select(Seat).where(Seat.room_id == room.id, Seat.is_archived.is_(False), Seat.id.in_(layout_ids))).all()
+        found = [seat for seat in candidates if seat.code.lower().startswith(code)]
+        found.sort(key=lambda seat: (seat.code.lower() != code, len(seat.code), seat.code))
+        seat_matches.extend(found)
+    seat_matches = seat_matches[:6]
+
+    room_seats = db.scalars(select(Seat).where(Seat.room_id.in_([room.id for room in matched_rooms]), Seat.is_archived.is_(False))).all() if matched_rooms else []
+    states = seat_state_data(db, [*room_seats, *seat_matches])
+    counts: dict[int, Counter] = defaultdict(Counter)
+    for seat in room_seats:
+        counts[seat.room_id][states[seat.id]["display_state"]] += 1
+    result["rooms"] = [{"id": room.id, "name": room.name, "floor": room.floor or infer_floor(room.name), "is_virtual": room.is_virtual,
+                        "major_names": room.major_names or [], "seat_counts": dict(counts[room.id])} for room in matched_rooms]
+    result["seats"] = [{"id": seat.id, "code": seat.code, "room_id": seat.room_id, "room_name": seat.room.name,
+                        "display_state": states[seat.id]["display_state"],
+                        "occupant": (states[seat.id]["occupant"] or {}).get("name")} for seat in seat_matches]
+
+    matches = [column.icontains(text, autoescape=True) for column in (Student.name, Student.student_no, Student.adviser)]
+    filters = [Student.is_archived.is_(False), or_(*matches)]
+    rank = case(
+        (or_(Student.name == text, Student.student_no == text), 0),
+        (or_(Student.name.istartswith(text, autoescape=True), Student.student_no.istartswith(text, autoescape=True)), 1),
+        (matches[0], 2),
+        else_=3,
+    )
+    result["student_total"] = db.scalar(select(func.count()).select_from(Student).where(*filters)) or 0
+    students = db.scalars(select(Student).options(joinedload(Student.major)).where(*filters)
+                          .order_by(rank, Student.name, Student.id).limit(6)).all()
+    records = student_assignments(db, [student.id for student in students], current_only=True)
+    result["students"] = [serialize_student(db, student, records=records.get(student.id, []), include_history=False) for student in students]
+
+    result["advisers"] = [{"name": name, "count": count} for name, count in db.execute(
+        select(Student.adviser, func.count())
+        .where(Student.is_archived.is_(False), Student.adviser.icontains(text, autoescape=True))
+        .group_by(Student.adviser)
+        .order_by(case((Student.adviser == text, 0), else_=1), func.count().desc(), Student.adviser)
+        .limit(3)
+    ).all()]
+
+    pending = db.scalars(select(Application).options(joinedload(Application.seat).joinedload(Seat.room))
+                         .where(Application.status == "pending").order_by(Application.submitted_at.desc())).all()
+    for application in pending:
+        data = application.reviewed_data or application.original_data
+        fields = [application.student_no, str(data.get("name") or ""), str(application.original_data.get("name") or ""), str(data.get("adviser") or "")]
+        if any(needle in value.lower() for value in fields):
+            result["applications"].append({"id": application.id, "name": str(data.get("name") or application.original_data.get("name") or ""),
+                                           "student_no": application.student_no, "room_id": application.seat.room.id,
+                                           "room_name": application.seat.room.name, "seat_code": application.seat.code,
+                                           "submitted_at": application.submitted_at})
+            if len(result["applications"]) == 4:
+                break
+    return result
 
 
 @app.get("/api/admin/options")

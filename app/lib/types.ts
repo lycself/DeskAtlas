@@ -102,3 +102,18 @@ export type Student = {
     note?: string | null;
   }>;
 };
+
+/** Where a command-palette result lands inside the admin portal. */
+export type AdminJump =
+  | { section: "rooms"; roomId: number; seatId?: string }
+  | { section: "students"; query: string; studentId?: number }
+  | { section: "applications"; applicationId: number };
+
+export type AdminSearchResults = {
+  students: Student[];
+  student_total: number;
+  advisers: Array<{ name: string; count: number }>;
+  rooms: Array<{ id: number; name: string; floor?: string | null; is_virtual: boolean; major_names: string[]; seat_counts: Partial<Record<SeatState, number>> }>;
+  seats: Array<{ id: string; code: string; room_id: number; room_name: string; display_state: SeatState; occupant?: string | null }>;
+  applications: Array<{ id: number; name: string; student_no: string; room_id: number; room_name: string; seat_code: string; submitted_at: string }>;
+};

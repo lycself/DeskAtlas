@@ -1,10 +1,10 @@
 "use client";
 
 import { Check, CircleAlert, Inbox, Mail, RefreshCw, X } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { api } from "@/app/lib/api";
-import type { Application, Bootstrap, Room } from "@/app/lib/types";
+import type { AdminJump, Application, Bootstrap, Room } from "@/app/lib/types";
 import { RoomPlan } from "../RoomPlan";
 import { DerivedEmail } from "./StudentFormFields";
 
@@ -18,7 +18,7 @@ type ReviewData = {
   major_id: string;
 };
 
-export function AdminApplications({ active = true }: { active?: boolean }) {
+export function AdminApplications({ active = true, jump = null }: { active?: boolean; jump?: Extract<AdminJump, { section: "applications" }> | null }) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [options, setOptions] = useState<Bootstrap | null>(null);
@@ -47,6 +47,12 @@ export function AdminApplications({ active = true }: { active?: boolean }) {
   };
 
   useEffect(() => { if (active) void load(); }, [active]);
+  const openJump = useEffectEvent((applicationId: number) => {
+    setSelectedId(applicationId);
+    // The list may predate this application; the first visit is loading it already.
+    if (applications.length && !applications.some((item) => item.id === applicationId)) void load();
+  });
+  useEffect(() => { if (jump) openJump(jump.applicationId); }, [jump]);
   const selected = applications.find((item) => item.id === selectedId);
   useEffect(() => {
     if (!selected) return setForm(null);

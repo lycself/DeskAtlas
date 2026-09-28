@@ -10,6 +10,7 @@ import {
   LogOut,
   Map,
   Menu,
+  Search,
   Settings,
   Users,
   X,
@@ -21,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { api, ApiError } from "@/app/lib/api";
+import type { AdminJump } from "@/app/lib/types";
 const AdminApplications = dynamic(() => import("./admin/AdminApplications").then((module) => module.AdminApplications));
 const AdminImport = dynamic(() => import("./admin/AdminImport").then((module) => module.AdminImport));
 const AdminOverview = dynamic(() => import("./admin/AdminOverview").then((module) => module.AdminOverview));
@@ -28,6 +30,7 @@ const AdminRooms = dynamic(() => import("./admin/AdminRooms").then((module) => m
 const AdminSettings = dynamic(() => import("./admin/AdminSettings").then((module) => module.AdminSettings));
 const AdminStudents = dynamic(() => import("./admin/AdminStudents").then((module) => module.AdminStudents));
 import { Brand } from "./Brand";
+import { CommandPalette } from "./admin/CommandPalette";
 import { ThemeToggle } from "./ThemeToggle";
 
 type Section = "overview" | "applications" | "rooms" | "students" | "import" | "settings";
@@ -56,6 +59,8 @@ export function AdminPortal() {
   const [section, setSection] = useState<Section>("overview");
   const [navOpen, setNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [jump, setJump] = useState<AdminJump | null>(null);
 
   useEffect(() => {
     api("/api/admin/session")
@@ -78,6 +83,23 @@ export function AdminPortal() {
     return () => window.removeEventListener("popstate", sync);
   }, [ready]);
 
+  useEffect(() => {
+    if (!ready) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      const typing = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']");
+      const shortcut = (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k";
+      const slash = event.key === "/" && !typing && !event.metaKey && !event.ctrlKey && !event.altKey;
+      if (!shortcut && !slash) return;
+      // Another dialog owns the keyboard while it is open.
+      if (!paletteOpen && document.querySelector(".profile-backdrop")) return;
+      event.preventDefault();
+      setPaletteOpen(shortcut ? !paletteOpen : true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ready, paletteOpen]);
+
   const logout = async () => {
     try {
       await api("/api/admin/logout", { method: "POST" });
@@ -96,6 +118,9 @@ export function AdminPortal() {
     if (window.location.hash.replace(/^#/, "").split("/")[0] !== next) window.history.pushState(null, "", `#${next}`);
     window.scrollTo({ top: 0, behavior: "instant" });
   };
+  const openPage = (page: string) => { setPaletteOpen(false); navigate(page as Section); };
+  const openJump = (target: AdminJump) => { setPaletteOpen(false); navigate(target.section); setJump(target); };
+  const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 
   return (
     <main className={`admin-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -105,6 +130,9 @@ export function AdminPortal() {
           <Brand href="/admin" label="DeskAtlas 管理端" />
           <button className="mobile-sidebar-toggle icon-button" aria-label="打开导航" onClick={() => setNavOpen(true)}><Menu /></button>
           <div className="admin-breadcrumb"><span>管理端</span><i>/</i><strong>{currentSection?.label}</strong></div>
+          <button className="command-trigger" onClick={() => setPaletteOpen(true)} aria-label="全局搜索" aria-keyshortcuts={isMac ? "Meta+K" : "Control+K"} title={`全局搜索（${isMac ? "⌘K" : "Ctrl K"}）`}>
+            <Search /><span>搜索学生、房间、工位</span><kbd>{isMac ? "⌘K" : "Ctrl K"}</kbd>
+          </button>
           <div className="admin-topbar-actions">
             <Link className="icon-button" href="/" aria-label="打开学生端" title="打开学生端"><House size={17} /></Link>
             <ThemeToggle />
@@ -129,12 +157,13 @@ export function AdminPortal() {
       <section className="admin-main">
         {sessionError && <p className="form-error page-error">{sessionError}</p>}
         {visited.includes("overview") && <div hidden={section !== "overview"}><AdminOverview active={section === "overview"} onNavigate={navigate} /></div>}
-        {visited.includes("applications") && <div hidden={section !== "applications"}><AdminApplications active={section === "applications"} /></div>}
-        {visited.includes("rooms") && <div hidden={section !== "rooms"}><AdminRooms active={section === "rooms"} /></div>}
-        {visited.includes("students") && <div hidden={section !== "students"}><AdminStudents active={section === "students"} /></div>}
+        {visited.includes("applications") && <div hidden={section !== "applications"}><AdminApplications active={section === "applications"} jump={jump?.section === "applications" ? jump : null} /></div>}
+        {visited.includes("rooms") && <div hidden={section !== "rooms"}><AdminRooms active={section === "rooms"} jump={jump?.section === "rooms" ? jump : null} /></div>}
+        {visited.includes("students") && <div hidden={section !== "students"}><AdminStudents active={section === "students"} jump={jump?.section === "students" ? jump : null} /></div>}
         {visited.includes("import") && <div hidden={section !== "import"}><AdminImport active={section === "import"} /></div>}
         {visited.includes("settings") && <div hidden={section !== "settings"}><AdminSettings active={section === "settings"} /></div>}
       </section>
+      {paletteOpen && <CommandPalette pages={sections} onNavigate={openPage} onJump={openJump} onClose={() => setPaletteOpen(false)} />}
     </main>
   );
 }
