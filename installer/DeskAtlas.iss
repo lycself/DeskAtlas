@@ -37,7 +37,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ShowLanguageDialog=no
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; Inno Setup does not ship the Simplified Chinese translation; it is vendored from the official
+; unofficial-translations folder into installer\languages.
+Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "autostart"; Description: "登录 Windows 后自动启动 DeskAtlas 并对外提供服务"; GroupDescription: "开机启动："
