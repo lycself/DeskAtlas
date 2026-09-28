@@ -111,7 +111,11 @@ jobs:
           DESKATLAS_UPDATE_PRIVATE_KEY: ${{ secrets.DESKATLAS_UPDATE_PRIVATE_KEY }}
         run: |
           VERSION="${{ steps.version.outputs.value }}"
-          git log -1 --pretty=%B > dist/notes.md
+          # Notes come from the annotated tag message (a lightweight tag falls back to the commit message).
+          # They are shown in the tray panel and on the release page, so write them in Chinese.
+          # checkout only leaves a lightweight copy of the tag, so fetch the tag object first.
+          git fetch --force --no-tags origin "+refs/tags/v$VERSION:refs/tags/v$VERSION"
+          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "v$VERSION" > dist/notes.md
           python scripts/make_update_manifest.py \
             --version "$VERSION" \
             --installer "dist/DeskAtlas-Setup-$VERSION.exe" \
@@ -133,7 +137,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: DeskAtlas ${{ steps.version.outputs.value }}
-          generate_release_notes: true
+          body_path: dist/notes.md
           files: |
             dist/DeskAtlas-Setup-${{ steps.version.outputs.value }}.exe
             dist/latest.json

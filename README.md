@@ -150,7 +150,15 @@ docker compose exec -T db pg_restore -U deskatlas -d deskatlas --clean --if-exis
 
 ### 发布流程
 
-1. 打 tag 并推送：`git tag v1.0.0 && git push origin v1.0.0`。不需要配置任何密钥。
+1. 打带说明的 tag 并推送，不需要配置任何密钥。tag 说明就是更新说明，会显示在托盘面板的“发现新版本”下方和 GitHub Release 页面上，请用中文写给管理员看：
+
+   ```bash
+   git tag -a v1.2.0 -m "DeskAtlas 1.2.0" -m "- 新增……
+   - 修复……"
+   git push origin v1.2.0
+   ```
+
+   不带说明的轻量 tag 会退回使用该提交的提交信息。
 2. `.github/workflows/release.yml` 在 Windows runner 上执行：静态导出前端、运行后端测试、PyInstaller 打包、Inno Setup 生成安装包、生成 `latest.json`，并用 Actions 自带的 token 发布到 GitHub Release。手动触发（workflow_dispatch）只产出构建产物，不发布。
 3. 默认更新源是 GitHub Releases，走 HTTPS，客户端校验安装包 sha256，`latest.json` 不签名也会被接受。只有当更新源改为校内镜像时才需要签名：运行 `.venv/bin/python scripts/generate_update_keys.py`，公钥写入 `desktop/update_key.py`（仓库已包含当前公钥），私钥保存为 GitHub Actions 密钥 `DESKATLAS_UPDATE_PRIVATE_KEY`，之后的发布会自动签名，镜像里的清单才会被客户端接受。
 
