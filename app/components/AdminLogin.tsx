@@ -79,9 +79,8 @@ export function AdminLogin() {
 
   return (
     <main className="login-shell">
-      <div className="login-orb one" /><div className="login-orb two" />
       <header className="login-header">
-        <Brand href="/" />
+        <Brand href="/" label="DeskAtlas 首页" />
         <div className="login-header-actions">
           <Link className="back-home-link" href="/"><ArrowLeft size={16} />返回首页</Link>
           <ThemeToggle />

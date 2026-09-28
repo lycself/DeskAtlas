@@ -137,7 +137,7 @@ export function PanelApp() {
           </div>
         </div>}
         {state?.platform === "win32" && <p className="panel-notice">学生打不开地址？DeskAtlas 第一次运行时，Windows 会询问是否允许它访问网络，请选择“允许访问”（专用和公用网络都勾选）。如果当时点了取消，可在“Windows 安全中心 → 防火墙和网络保护 → 允许应用通过防火墙”中勾选 DeskAtlas。</p>}
-        <div className="panel-actions">
+        <div className="panel-buttons">
           <button disabled={!state?.available || !!busy} onClick={() => void open("public")}><Users size={15} />打开学生端</button>
           <button disabled={!state?.available || !!busy} onClick={() => void open("admin")}><ExternalLink size={15} />打开管理端</button>
         </div>
@@ -146,7 +146,7 @@ export function PanelApp() {
       <section className="panel-card glass-surface">
         <h2>备份</h2>
         <p>{state?.last_backup ? `最近一次备份：${new Date(state.last_backup).toLocaleString("zh-CN")}` : "还没有备份。"}{state?.backup_dir && <><br /><code>{state.backup_dir}</code></>}</p>
-        <div className="panel-actions">
+        <div className="panel-buttons">
           <button disabled={!state?.available || !!busy} onClick={() => void run("backup", async () => { const result = await api<{ name: string }>("/api/panel/backup", { method: "POST" }); setMessage(`已生成 ${result.name}`); })}><Archive size={15} />{busy === "backup" ? "正在备份…" : "立即备份"}</button>
           <button disabled={!state?.available || !!busy} onClick={() => void open("backups")}><FolderOpen size={15} />打开备份目录</button>
           <button disabled={!state?.available || !!busy} onClick={() => void open("data")}><FolderOpen size={15} />打开数据目录</button>
@@ -156,6 +156,7 @@ export function PanelApp() {
 
       <section className="panel-card glass-surface">
         <h2>运行设置</h2>
+        {!form && <p>桌面版运行时，可在这里修改服务端口、开机自启动、防睡眠和自动备份；开发模式下没有这些设置。</p>}
         {form && <>
           <label className="panel-toggle">
             <div><strong>开机自动启动</strong><small>登录 Windows 后自动运行并对外提供服务。</small></div>
@@ -189,7 +190,7 @@ export function PanelApp() {
           {state?.update?.error ? `（${state.update.error}）` : ""}
         </p>
         {state?.update?.notes && <pre className="panel-notes">{state.update.notes}</pre>}
-        <div className="panel-actions">
+        <div className="panel-buttons">
           <button disabled={!state?.available || !!busy} onClick={() => void run("check", async () => { await api("/api/panel/update/check", { method: "POST" }); })}><RefreshCw size={15} />{busy === "check" ? "正在检查…" : "检查更新"}</button>
           <button className="accent" disabled={!state?.available || !!busy || !(state?.update?.status === "available" || state?.update?.status === "ready")} onClick={() => { if (window.confirm("安装更新会短暂停止服务并自动重新启动。现在更新？")) void run("apply", async () => { await api("/api/panel/update/apply", { method: "POST" }); setMessage("正在下载并安装更新，程序会自动重启。"); }); }}>立即更新</button>
         </div>

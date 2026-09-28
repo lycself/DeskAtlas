@@ -25,6 +25,7 @@ import { RoomPlan } from "./RoomPlan";
 import { VirtualRoomPlan } from "./VirtualRoomPlan";
 import { PublicHeader } from "./PublicHeader";
 import { MajorTags } from "./MajorTags";
+import { emptyStudentForm, StudentFormFields, type StudentFormValues } from "./admin/StudentFormFields";
 
 const labels: Record<SeatState, string> = {
   available: "可申请",
@@ -33,25 +34,12 @@ const labels: Record<SeatState, string> = {
   unavailable: "不可使用",
 };
 
-type ApplicationForm = {
-  name: string;
-  student_no: string;
-  adviser: string;
-  email: string;
-  enrollment_year: string;
-  program_level: string;
-  major_id: string;
-};
+const ROOM_PARAM = "room";
 
-const emptyForm: ApplicationForm = {
-  name: "",
-  student_no: "",
-  adviser: "",
-  email: "",
-  enrollment_year: "",
-  program_level: "硕士",
-  major_id: "",
-};
+function roomIdFromUrl(): number | null {
+  const value = Number(new URLSearchParams(window.location.search).get(ROOM_PARAM));
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
 
 function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorChange }: {
   rooms: Room[]; allRooms: Room[]; selected?: Room; onSelect: (room: Room) => void;
@@ -64,7 +52,7 @@ function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorC
   return (
     <aside className="room-picker" aria-label="选择房间">
       <div className="directory-heading"><Building2 size={17} /><strong>房间列表</strong><span>{rooms.length}</span></div>
-      <label className="major-filter"><span>所属教研中心</span><select aria-label="所属教研中心" value={majorFilter} onChange={(event) => onMajorChange(event.target.value)}>
+      <label className="major-filter"><span>教研中心</span><select aria-label="按教研中心筛选房间" value={majorFilter} onChange={(event) => onMajorChange(event.target.value)}>
         <option value="">全部教研中心</option>
         {[...new Set(allRooms.flatMap((room) => room.major_names ?? []))].sort((a, b) => a.localeCompare(b, "zh-CN")).map((major) => <option key={major} value={major}>{major}（{allRooms.filter((room) => room.major_names?.includes(major)).length}）</option>)}
       </select></label>
@@ -118,7 +106,7 @@ export function StudentPortal() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [form, setForm] = useState<ApplicationForm>(emptyForm);
+  const [form, setForm] = useState<StudentFormValues>(emptyStudentForm);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -129,7 +117,10 @@ export function StudentPortal() {
       const next = await api<Bootstrap>("/api/public/bootstrap");
       const ordered = { ...next, rooms: sortRooms(next.rooms) };
       setData(ordered);
-      setSelectedRoomId((current) => (ordered.rooms.some((room) => room.id === current) ? current : ordered.rooms[0]?.id ?? null));
+      setSelectedRoomId((current) => {
+        const wanted = current ?? roomIdFromUrl();
+        return ordered.rooms.some((room) => room.id === wanted) ? wanted : ordered.rooms[0]?.id ?? null;
+      });
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "无法连接 DeskAtlas");
     } finally {
@@ -140,6 +131,15 @@ export function StudentPortal() {
   useEffect(() => {
     void load();
   }, []);
+
+  // Keep the chosen room in the address bar so a link can point at a specific room.
+  useEffect(() => {
+    if (selectedRoomId === null) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get(ROOM_PARAM) === String(selectedRoomId)) return;
+    url.searchParams.set(ROOM_PARAM, String(selectedRoomId));
+    window.history.replaceState(null, "", url);
+  }, [selectedRoomId]);
 
   const selectedRoom = data?.rooms.find((room) => room.id === selectedRoomId);
   const filteredRooms = (data?.rooms ?? []).filter((room) => !majorFilter || room.major_names?.includes(majorFilter));
@@ -169,7 +169,12 @@ export function StudentPortal() {
     setFormError("");
     setSubmitted(false);
     if (item?.seat?.display_state === "available") {
-      setForm({ ...emptyForm, enrollment_year: String(data?.years.at(-2) ?? data?.years.at(-1) ?? ""), major_id: String(data?.majors[0]?.id ?? "") });
+      setForm({
+        ...emptyStudentForm,
+        program_level: data?.program_levels.includes("硕士") ? "硕士" : data?.program_levels[0] ?? "",
+        enrollment_year: String(data?.years.at(-2) ?? data?.years.at(-1) ?? ""),
+        major_id: String(data?.majors[0]?.id ?? ""),
+      });
     }
   };
 
@@ -240,8 +245,8 @@ export function StudentPortal() {
                   {query && <button aria-label="清空搜索" onClick={() => setQuery("")}><X size={14} /></button>}
                 </label>
                 <div className="segmented-control" aria-label="视图切换">
-                  <button className={view === "map" ? "active" : ""} onClick={() => setView("map")}><LayoutGrid size={16} /> {selectedRoom.is_virtual ? "位置图" : "平面图"}</button>
-                  <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}><List size={16} /> 列表</button>
+                  <button className={view === "map" ? "active" : ""} aria-pressed={view === "map"} onClick={() => setView("map")}><LayoutGrid size={16} /> {selectedRoom.is_virtual ? "位置图" : "平面图"}</button>
+                  <button className={view === "list" ? "active" : ""} aria-pressed={view === "list"} onClick={() => setView("list")}><List size={16} /> 列表</button>
                 </div>
               </div>
 
@@ -321,13 +326,11 @@ export function StudentPortal() {
 
       {selectedItem?.seat && !selectedItem.seat.occupant && (
         <DetailDialog label={`${selectedRoom?.name} · 工位 ${selectedItem.label}`} onClose={() => setSelectedItem(null)} wide={selectedItem.seat.display_state === "available"}>
-            <div className={`drawer-heading ${selectedItem.seat.occupant ? "seat-context-heading" : ""}`}>
+            <div className="drawer-heading">
               <span className={`state-icon ${selectedItem.seat.display_state}`}>{selectedItem.label}</span>
               <div><p>{selectedRoom?.name}</p><h2>工位 {selectedItem.label}</h2></div>
             </div>
-            {selectedItem.seat.display_state === "occupied" && selectedItem.seat.occupant ? (
-              <StudentProfile person={selectedItem.seat.occupant} location={`${selectedRoom?.name} · 工位 ${selectedItem.label}`} />
-            ) : selectedItem.seat.display_state === "pending" ? (
+            {selectedItem.seat.display_state === "pending" ? (
               <div className="drawer-message"><CircleAlert /><h3>申请正在审核</h3><p>该工位已被临时锁定，暂时不能提交新的申请。</p></div>
             ) : selectedItem.seat.display_state === "unavailable" ? (
               <div className="drawer-message"><LockKeyhole /><h3>工位暂不可用</h3><p>{selectedItem.seat.note || "管理员暂时关闭了这个工位。"}</p></div>
@@ -335,18 +338,8 @@ export function StudentPortal() {
               <div className="drawer-message success"><Check /><h3>申请已经提交</h3><p>管理员处理后会通过你的学生邮箱发送结果，请留意邮件。</p></div>
             ) : (
               <form className="application-form" onSubmit={submitApplication}>
-                <div className="form-intro"><h3>申请这个工位</h3><p>请准确填写个人信息。导师姓名不完整可能导致审核不通过。</p></div>
-                <div className="field-grid two">
-                  <label><span>姓名</span><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-                  <label><span>学号</span><input required value={form.student_no} onChange={(e) => setForm({ ...form, student_no: e.target.value })} /></label>
-                </div>
-                <label><span>导师全名</span><input required placeholder="请填写导师完整姓名" value={form.adviser} onChange={(e) => setForm({ ...form, adviser: e.target.value })} /><small>信息不完整或不准确可能导致审核不通过</small></label>
-                <label><span>学生邮箱</span><input readOnly aria-label="学生邮箱（根据学号自动生成）" placeholder="根据学号自动生成" value={form.student_no.trim() ? `${form.student_no.trim()}@stu.xmu.edu.cn` : ""} /></label>
-                <div className="field-grid three">
-                  <label><span>年级</span><div className="select-wrap"><select required value={form.enrollment_year} onChange={(e) => setForm({ ...form, enrollment_year: e.target.value })}>{data?.years.map((year) => <option key={year}>{year}</option>)}</select><ChevronDown /></div></label>
-                  <label><span>培养层次</span><div className="select-wrap"><select required value={form.program_level} onChange={(e) => setForm({ ...form, program_level: e.target.value })}>{data?.program_levels.map((level) => <option key={level}>{level}</option>)}</select><ChevronDown /></div></label>
-                  <label><span>教研中心</span><div className="select-wrap"><select required value={form.major_id} onChange={(e) => setForm({ ...form, major_id: e.target.value })}>{data?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select><ChevronDown /></div></label>
-                </div>
+                <div className="form-intro"><h3>申请这个工位</h3><p>请准确填写个人信息，审核结果会发送到由学号生成的学生邮箱。</p></div>
+                <StudentFormFields form={form} onChange={(patch) => setForm({ ...form, ...patch })} options={data} required adviserHint="请填写导师完整姓名，不完整或不准确可能导致审核不通过" />
                 {formError && <p className="form-error"><CircleAlert size={16} />{formError}</p>}
                 <button className="primary-action" disabled={submitting}>{submitting ? "正在提交…" : "提交申请"}<ArrowRight size={17} /></button>
               </form>

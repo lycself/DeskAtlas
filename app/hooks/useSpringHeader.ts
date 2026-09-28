@@ -2,6 +2,9 @@
 
 import { useEffect, useRef } from "react";
 
+// The hero sits right under the bar, so the glass must appear before the title slides beneath it.
+const SCROLL_THRESHOLD = 24;
+
 export function useSpringHeader(enabled = true) {
   const headerRef = useRef<HTMLElement>(null);
 
@@ -9,7 +12,7 @@ export function useSpringHeader(enabled = true) {
     const header = headerRef.current;
     if (!header || !enabled) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let target = window.scrollY > 80 ? 1 : 0;
+    let target = window.scrollY > SCROLL_THRESHOLD ? 1 : 0;
     let position = target;
     let velocity = 0;
     let frame = 0;
@@ -32,7 +35,7 @@ export function useSpringHeader(enabled = true) {
       frame = requestAnimationFrame(step);
     };
     const update = () => {
-      target = window.scrollY > 80 ? 1 : 0;
+      target = window.scrollY > SCROLL_THRESHOLD ? 1 : 0;
       header.classList.toggle("is-scrolled", Boolean(target));
       if (reduced.matches) {
         cancelAnimationFrame(frame);

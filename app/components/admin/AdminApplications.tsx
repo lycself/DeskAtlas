@@ -5,7 +5,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { api } from "@/app/lib/api";
 import type { Application, Bootstrap, Room } from "@/app/lib/types";
-import { SeatMap } from "../SeatMap";
+import { RoomPlan } from "../RoomPlan";
+import { DerivedEmail } from "./StudentFormFields";
 
 type ReviewData = {
   name: string;
@@ -67,6 +68,11 @@ export function AdminApplications({ active = true }: { active?: boolean }) {
   };
   const review = async (action: "approve" | "reject") => {
     if (!selected || !form) return;
+    const seat = `${selected.seat.room_name} · 工位 ${selected.seat.code}`;
+    const question = action === "approve"
+      ? `同意 ${form.name} 的申请，并把 ${seat} 分配给该学生？结果会通过邮件通知。`
+      : `拒绝 ${form.name} 对 ${seat} 的申请？${reason.trim() ? "拒绝原因会随邮件发送给学生。" : "没有填写拒绝原因，邮件中将不包含原因。"}`;
+    if (!window.confirm(question)) return;
     setBusy(true); setError(""); setResult("");
     try {
       const response = await api<{ status: string; email_status: string }>(`/api/admin/applications/${selected.id}/review`, {
@@ -96,7 +102,7 @@ export function AdminApplications({ active = true }: { active?: boolean }) {
           <section className="review-list flat-section">
             <header><h2>等待处理</h2><span>{applications.length}</span></header>
             {applications.map((item) => (
-              <button key={item.id} className={selectedId === item.id ? "active" : ""} onClick={() => setSelectedId(item.id)}>
+              <button key={item.id} className={selectedId === item.id ? "active" : ""} aria-pressed={selectedId === item.id} onClick={() => setSelectedId(item.id)}>
                 <span className="review-avatar">{String(item.original_data.name ?? "?").slice(0, 1)}</span>
                 <span><strong>{String(item.original_data.name)}</strong><small>{item.seat.room_name} · {item.seat.code} 号</small></span>
                 <time>{new Date(item.submitted_at).toLocaleDateString("zh-CN")}</time>
@@ -105,7 +111,8 @@ export function AdminApplications({ active = true }: { active?: boolean }) {
           </section>
           {selected && form && (
             <section className="review-detail">
-              {selectedRoom && <div className="review-map"><SeatMap room={selectedRoom} selectedId={selected.seat.id} /></div>}
+              {/* The same SVG plan students and the room workbench use, so the seat looks identical everywhere. */}
+              {selectedRoom && <div className="review-map"><RoomPlan room={selectedRoom} query="" onSelect={() => undefined} selectedId={selected.seat.id} /></div>}
               <form className="review-form" onSubmit={(event: FormEvent) => event.preventDefault()}>
                 <header><div><p>申请位置</p><h2>{selected.seat.room_name} · 工位 {selected.seat.code}</h2></div><span className="state-label pending"><i />审核中</span></header>
                 <div className="field-grid two">
@@ -113,12 +120,12 @@ export function AdminApplications({ active = true }: { active?: boolean }) {
                   <label><span>学号</span><input value={form.student_no} onChange={(e) => setForm({ ...form, student_no: e.target.value })} />{originalHint("student_no", form.student_no)}</label>
                 </div>
                 <label><span>导师全名</span><input value={form.adviser} onChange={(e) => setForm({ ...form, adviser: e.target.value })} />{originalHint("adviser", form.adviser)}</label>
-                <label><span>学生邮箱</span><input readOnly aria-label="学生邮箱（根据学号自动生成）" placeholder="根据学号自动生成" value={form.student_no.trim() ? `${form.student_no.trim()}@stu.xmu.edu.cn` : ""} />{originalHint("email", form.email)}</label>
                 <div className="field-grid three">
                   <label><span>年级</span><select value={form.enrollment_year} onChange={(e) => setForm({ ...form, enrollment_year: e.target.value })}>{options?.years.map((year) => <option key={year}>{year}</option>)}</select>{originalHint("enrollment_year", form.enrollment_year)}</label>
                   <label><span>培养层次</span><select value={form.program_level} onChange={(e) => setForm({ ...form, program_level: e.target.value })}>{options?.program_levels.map((level) => <option key={level}>{level}</option>)}</select>{originalHint("program_level", form.program_level)}</label>
                   <label><span>教研中心</span><select value={form.major_id} onChange={(e) => setForm({ ...form, major_id: e.target.value })}>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select>{originalHint("major_id", form.major_id, (value) => options?.majors.find((major) => String(major.id) === value)?.name)}</label>
                 </div>
+                <DerivedEmail studentNo={form.student_no} />
                 <label><span>拒绝原因（可留空）</span><textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="填写后会随结果邮件发送给学生" /></label>
                 <div className="review-actions"><button type="button" className="danger-action" disabled={busy} onClick={() => review("reject")}><X size={17} />拒绝</button><button type="button" className="primary-action" disabled={busy} onClick={() => review("approve")}><Check size={17} />同意并分配</button></div>
               </form>

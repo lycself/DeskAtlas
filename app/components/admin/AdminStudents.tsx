@@ -19,30 +19,13 @@ import { FormEvent, Fragment, useCallback, useEffect, useRef, useState } from "r
 import { api } from "@/app/lib/api";
 import type { Bootstrap, Student } from "@/app/lib/types";
 
+import { DetailDialog } from "../DetailDialog";
 import { StudentProfile } from "../StudentProfile";
+import { emptyStudentForm, StudentFormFields, type StudentFormValues } from "./StudentFormFields";
 
-type StudentForm = {
-  name: string;
-  student_no: string;
-  adviser: string;
-  email: string;
-  enrollment_year: string;
-  program_level: string;
-  major_id: string;
-  seat_id: string;
-};
-type EditStudentForm = Omit<StudentForm, "seat_id">;
+type StudentForm = StudentFormValues & { seat_id: string };
 
-const blank: StudentForm = {
-  name: "",
-  student_no: "",
-  adviser: "",
-  email: "",
-  enrollment_year: "",
-  program_level: "",
-  major_id: "",
-  seat_id: "",
-};
+const blank: StudentForm = { ...emptyStudentForm, seat_id: "" };
 
 export function AdminStudents({ active = true }: { active?: boolean }) {
   const [students, setStudents] = useState<Student[]>([]);
@@ -63,7 +46,7 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
   const [incompleteOnly, setIncompleteOnly] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<StudentForm>(blank);
-  const [editForm, setEditForm] = useState<EditStudentForm | null>(null);
+  const [editForm, setEditForm] = useState<StudentFormValues | null>(null);
   const [moveSeat, setMoveSeat] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -110,20 +93,19 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
   const filtered = students;
   const selected = detail?.id === selectedId ? detail : students.find((student) => student.id === selectedId);
 
+  const value = (text: string) => text.trim() || null;
   const create = async (event: FormEvent) => {
     event.preventDefault();
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true);
     setError("");
-    const value = (text: string) => text.trim() || null;
     try {
       await api("/api/admin/students", {
         method: "POST",
         body: JSON.stringify({
-          name: form.name,
+          name: form.name.trim(),
           student_no: value(form.student_no),
           adviser: value(form.adviser),
-          email: value(form.email),
           enrollment_year: form.enrollment_year ? Number(form.enrollment_year) : null,
           program_level: value(form.program_level),
           major_id: form.major_id ? Number(form.major_id) : null,
@@ -145,7 +127,6 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
       name: selected.name,
       student_no: selected.student_no ?? "",
       adviser: selected.adviser ?? "",
-      email: selected.email ?? "",
       enrollment_year: selected.enrollment_year ? String(selected.enrollment_year) : "",
       program_level: selected.program_level ?? "",
       major_id: selected.major_id ? String(selected.major_id) : "",
@@ -157,7 +138,6 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
     if (!selected || !editForm || busyRef.current) return;
     busyRef.current = true; setBusy(true);
     setError("");
-    const value = (text: string) => text.trim() || null;
     try {
       await api(`/api/admin/students/${selected.id}`, {
         method: "PATCH",
@@ -165,7 +145,6 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
           name: editForm.name.trim(),
           student_no: value(editForm.student_no),
           adviser: value(editForm.adviser),
-          email: value(editForm.email),
           enrollment_year: editForm.enrollment_year ? Number(editForm.enrollment_year) : null,
           program_level: value(editForm.program_level),
           major_id: editForm.major_id ? Number(editForm.major_id) : null,
@@ -215,18 +194,20 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
   return (
     <div className="admin-page">
       <header className="page-heading">
-        <h1>学生与工位</h1>
-        <button disabled={busy} className="primary-action compact" onClick={() => setShowCreate(true)}><Plus size={16} />直接录入</button>
+        <h1>学生名册</h1>
+        <div className="heading-actions">
+          <button className="secondary-action" disabled={loading} onClick={load}><RefreshCw size={16} className={loading ? "spin" : ""} />刷新</button>
+          <button disabled={busy} className="primary-action compact" onClick={() => { setError(""); setShowCreate(true); }}><Plus size={16} />直接录入</button>
+        </div>
       </header>
-      {error && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}
+      {error && !showCreate && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}
       {message && <p className="success-banner"><UserRoundCheck size={16} />{message}</p>}
 
       <fieldset disabled={busy}>
       <div className="student-tools">
-        <label className="search-field"><Search size={16} /><input placeholder="搜索姓名、学号或导师" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} /></label>
+        <label className="search-field"><Search size={16} /><input aria-label="搜索学生" placeholder="搜索姓名、学号或导师" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} /></label>
         <select aria-label="工位分组" value={placement} onChange={(event) => { setPlacement(event.target.value); setPage(0); }}><option value="">全部工位分组</option><option value="physical">实际工位</option><option value="翔安">翔安</option><option value="未被分配">未被分配</option></select>
         <label className="check-control"><input type="checkbox" checked={incompleteOnly} onChange={(event) => { setIncompleteOnly(event.target.checked); setPage(0); }} />只看信息待补全</label>
-        <button disabled={loading} onClick={load}><RefreshCw size={15} />刷新</button>
       </div>
 
       <section className="seat-table-wrap student-table">
@@ -269,15 +250,7 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
                             </header>
                             {editForm ? (
                               <form className="edit-student-form" onSubmit={saveEdit}>
-                                <div className="field-grid two">
-                                  <label><span>姓名</span><input required value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} /></label>
-                                  <label><span>学号</span><input value={editForm.student_no} onChange={(event) => setEditForm({ ...editForm, student_no: event.target.value })} /></label>
-                                  <label><span>导师全名</span><input value={editForm.adviser} onChange={(event) => setEditForm({ ...editForm, adviser: event.target.value })} /></label>
-                                  <label><span>学生邮箱</span><input readOnly aria-label="学生邮箱（根据学号自动生成）" placeholder="根据学号自动生成" value={editForm.student_no.trim() ? `${editForm.student_no.trim()}@stu.xmu.edu.cn` : ""} /></label>
-                                  <label><span>年级</span><select value={editForm.enrollment_year} onChange={(event) => setEditForm({ ...editForm, enrollment_year: event.target.value })}><option value="">待补全</option>{options?.years.map((year) => <option key={year}>{year}</option>)}</select></label>
-                                  <label><span>培养层次</span><select value={editForm.program_level} onChange={(event) => setEditForm({ ...editForm, program_level: event.target.value })}><option value="">待补全</option>{options?.program_levels.map((level) => <option key={level}>{level}</option>)}</select></label>
-                                </div>
-                                <label><span>教研中心</span><select value={editForm.major_id} onChange={(event) => setEditForm({ ...editForm, major_id: event.target.value })}><option value="">待补全</option>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select></label>
+                                <StudentFormFields form={editForm} onChange={(patch) => setEditForm({ ...editForm, ...patch })} options={options} />
                                 <button className="primary-action compact"><Save size={15} />保存资料</button>
                               </form>
                             ) : (
@@ -286,7 +259,7 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
                           </section>
                           <section className="move-panel" hidden={detailTab !== "seat"}>
                             <h3><ArrowRightLeft size={16} />修改工位</h3>
-                            <select value={moveSeat} onChange={(event) => setMoveSeat(event.target.value)}><option value="">选择一个空闲工位</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select>
+                            <select aria-label="目标工位" value={moveSeat} onChange={(event) => setMoveSeat(event.target.value)}><option value="">选择一个空闲工位</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select>
                             <button disabled={!moveSeat} onClick={move}>确认移动</button>
                             {selected.current_assignment && <button className="danger-plain" onClick={release}><UserRoundX size={16} />释放当前工位</button>}
                           </section>
@@ -310,28 +283,18 @@ export function AdminStudents({ active = true }: { active?: boolean }) {
 
       </fieldset>
       {showCreate && (
-        <div className="modal-backdrop">
-          <form className="modal-panel glass-surface" onSubmit={create} aria-busy={busy}>
-            <header><h2>直接录入学生</h2><button type="button" aria-label="关闭" onClick={() => setShowCreate(false)}><X size={16} /></button></header>
-            <p>除姓名外，其他信息可以稍后补全。</p>
-            {error && <p className="form-error">{error}</p>}
+        <DetailDialog label="直接录入学生" wide onClose={() => { if (!busy) setShowCreate(false); }}>
+          <form className="dialog-form" onSubmit={create} aria-busy={busy}>
+            <div className="drawer-heading"><div><p>学生名册</p><h2>直接录入学生</h2></div></div>
+            <p className="form-hint">除姓名外，其他信息可以稍后补全。</p>
+            {error && <p className="form-error"><CircleAlert size={16} />{error}</p>}
             <fieldset disabled={busy}>
-            <div className="field-grid two">
-              <label><span>姓名</span><input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-              <label><span>学号</span><input value={form.student_no} onChange={(event) => setForm({ ...form, student_no: event.target.value })} /></label>
-            </div>
-            <label><span>导师全名</span><input value={form.adviser} onChange={(event) => setForm({ ...form, adviser: event.target.value })} /></label>
-            <label><span>学生邮箱</span><input readOnly aria-label="学生邮箱（根据学号自动生成）" placeholder="根据学号自动生成" value={form.student_no.trim() ? `${form.student_no.trim()}@stu.xmu.edu.cn` : ""} /></label>
-            <div className="field-grid three">
-              <label><span>年级</span><select value={form.enrollment_year} onChange={(event) => setForm({ ...form, enrollment_year: event.target.value })}><option value="">待补全</option>{options?.years.map((year) => <option key={year}>{year}</option>)}</select></label>
-              <label><span>培养层次</span><select value={form.program_level} onChange={(event) => setForm({ ...form, program_level: event.target.value })}><option value="">待补全</option>{options?.program_levels.map((level) => <option key={level}>{level}</option>)}</select></label>
-              <label><span>教研中心</span><select value={form.major_id} onChange={(event) => setForm({ ...form, major_id: event.target.value })}><option value="">待补全</option>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select></label>
-            </div>
-            <label><span>直接分配工位</span><select value={form.seat_id} onChange={(event) => setForm({ ...form, seat_id: event.target.value })}><option value="">未被分配（虚拟工位）</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select></label>
-            <button className="primary-action">保存学生</button>
+              <StudentFormFields form={form} onChange={(patch) => setForm({ ...form, ...patch })} options={options} />
+              <label><span>直接分配工位</span><select value={form.seat_id} onChange={(event) => setForm({ ...form, seat_id: event.target.value })}><option value="">未被分配（虚拟工位）</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select></label>
+              <div className="form-actions"><button className="primary-action compact">{busy ? "正在保存…" : "保存学生"}</button><button type="button" className="secondary-action compact" onClick={() => setShowCreate(false)}>取消</button></div>
             </fieldset>
           </form>
-        </div>
+        </DetailDialog>
       )}
     </div>
   );

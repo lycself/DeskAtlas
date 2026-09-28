@@ -64,8 +64,10 @@ export function AdminTeachers({ majors, active }: { majors: Major[]; active: boo
           <label><span>中心职务</span><input maxLength={120} value={draft.role ?? ""} onChange={(e) => setDraft({ ...draft, role: e.target.value })} /></label>
         </div>
         <label className="check-control"><input type="checkbox" checked={draft.is_active} onChange={(e) => setDraft({ ...draft, is_active: e.target.checked })} />启用教师</label>
-        <button className="primary-action compact" disabled={!draft.name.trim() || !draft.major_id}>{busy ? "保存中…" : "保存教师"}</button>
-        <button type="button" onClick={() => { setEditing(null); setDraft(empty); setShowForm(false); }}>取消</button>
+        <div className="form-actions">
+          <button className="primary-action compact" disabled={!draft.name.trim() || !draft.major_id}>{busy ? "保存中…" : "保存教师"}</button>
+          <button type="button" className="secondary-action compact" onClick={() => { setEditing(null); setDraft(empty); setShowForm(false); }}>取消</button>
+        </div>
       </fieldset>
     </form>}
     <div className="student-tools">

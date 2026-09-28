@@ -46,20 +46,24 @@ export function RoomPlan({ room, query, onSelect, selectedId, choosingTarget = f
       <div className="plan-caption"><span className="plan-indicator" />{hasWalls ? "房间平面图" : "工位示意图"}
         <small>{normalized ? `${resultCount} 个匹配工位` : choosingTarget ? "点击空闲工位选择目标" : "点击工位查看详情"}</small></div>
       <div className="plan-actions">
-        <button className="name-toggle" aria-pressed={showNames} onClick={() => setShowNames(!showNames)}>{showNames ? "姓名 + 编号" : "仅编号"}</button>
+        <button className="name-toggle" aria-pressed={showNames} title={showNames ? "只显示工位编号" : "同时显示使用人姓名"} onClick={() => setShowNames(!showNames)}>{showNames ? "隐藏姓名" : "显示姓名"}</button>
         {mapped.length > 0 && <div className="zoom-control">
-          <button onClick={() => { setFit(false); setZoom(Math.max(.5, zoom - .25)); }} disabled={!fit && zoom === .5} aria-label="缩小平面图"><Minus size={14} /></button>
+          <button onClick={() => { setFit(false); setZoom(Math.max(.5, zoom - .25)); }} disabled={!fit && zoom <= .5} aria-label="缩小平面图"><Minus size={14} /></button>
           <span>{fit ? "适应" : `${Math.round(zoom * 100)}%`}</span>
-          <button onClick={() => { setFit(false); setZoom(Math.min(2.5, zoom + .25)); }} disabled={!fit && zoom === 2.5} aria-label="放大平面图"><Plus size={14} /></button>
-          <button onClick={() => { setZoom(1); setFit(true); }} aria-label="适应窗口" title="适应窗口"><Maximize2 size={14} /></button>
+          <button onClick={() => { setFit(false); setZoom(Math.min(2.5, zoom + .25)); }} disabled={!fit && zoom >= 2.5} aria-label="放大平面图"><Plus size={14} /></button>
+          <button onClick={() => { setZoom(1); setFit(true); }} disabled={fit} aria-label="适应窗口" title="适应窗口"><Maximize2 size={14} /></button>
         </div>}
       </div>
     </div>
     {mapped.length > 0 && <div className="plan-viewport">
       <svg className="plan-svg" role="group" aria-label={`${room.name} 房间平面图`}
         viewBox={`${frame.x} ${frame.y} ${frame.width} ${frame.height}`}
-        style={{ width: fit ? "100%" : `max(100%, ${frame.width * .9 * zoom}px)`,
-          height: fit ? "var(--plan-height)" : `max(var(--plan-height), ${frame.height * .9 * zoom}px)` }}>
+        style={fit
+          ? { width: "100%", height: "var(--plan-height)" }
+          : zoom < 1
+            // Below the fitted size the drawing shrinks inside the viewport instead of being clamped to full width.
+            ? { width: `${zoom * 100}%`, height: `calc(var(--plan-height) * ${zoom})` }
+            : { width: `max(100%, ${frame.width * .9 * zoom}px)`, height: `max(var(--plan-height), ${frame.height * .9 * zoom}px)` }}>
         <title>{room.name} 房间工位分布，点击或按 Tab 选择工位</title>
         {mapped.filter((item) => item.type === "wall").map((item) =>
           <rect key={item.id} className="plan-wall" x={item.x} y={item.y} width={item.width} height={item.height}

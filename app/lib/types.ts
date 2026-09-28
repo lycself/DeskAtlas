@@ -42,6 +42,8 @@ export type Room = {
   is_published: boolean;
   is_archived: boolean;
   published_at?: string | null;
+  /** A saved draft differs from the layout students currently see. */
+  has_draft?: boolean;
   items: LayoutItem[];
   seat_counts: Partial<Record<SeatState, number>>;
 };

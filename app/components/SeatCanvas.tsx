@@ -13,11 +13,45 @@ type Props = {
   onItemsChange?: (items: LayoutItem[]) => void;
   onSelectMany?: (ids: string[]) => void;
 };
-const colors: Record<SeatState, { fill: string; stroke: string }> = {
-  available: { fill: "#d5eee2", stroke: "#388264" }, pending: { fill: "#fff0cf", stroke: "#b78628" },
-  occupied: { fill: "#dce8f8", stroke: "#628ac1" }, unavailable: { fill: "#e1e5eb", stroke: "#8793a2" },
+type Palette = {
+  paper: string; gridMajor: string; gridMinor: string; wall: string; fixture: string; fixtureStroke: string;
+  text: string; selected: string; guide: string; marquee: string;
+  seats: Record<SeatState, { fill: string; stroke: string }>;
+};
+// The same colours the SVG room plan uses, so the editor and the public map agree.
+const palettes: Record<"day" | "night", Palette> = {
+  day: {
+    paper: "#f8fafc", gridMajor: "#d4deeb", gridMinor: "#eaf0f6", wall: "#66768b", fixture: "#e8eef6", fixtureStroke: "#9aaec8",
+    text: "#2e4b70", selected: "#00448d", guide: "#be4b9b", marquee: "#00448d14",
+    seats: {
+      available: { fill: "#e5f2e8", stroke: "#4b8d69" }, pending: { fill: "#fbf2dc", stroke: "#cfa85b" },
+      occupied: { fill: "#eaf0f9", stroke: "#b1c4de" }, unavailable: { fill: "#edf0f5", stroke: "#c8d1dd" },
+    },
+  },
+  night: {
+    paper: "#101d31", gridMajor: "#2b3f5c", gridMinor: "#192a43", wall: "#8299b9", fixture: "#1f2f47", fixtureStroke: "#5a7295",
+    text: "#d0dded", selected: "#9cc2ff", guide: "#e58ccf", marquee: "#9cc2ff22",
+    seats: {
+      available: { fill: "#294934", stroke: "#7baf86" }, pending: { fill: "#4c3e29", stroke: "#cfa85b" },
+      occupied: { fill: "#1a2c47", stroke: "#456186" }, unavailable: { fill: "#202b3e", stroke: "#4b5b76" },
+    },
+  },
 };
 type DragNode = { node: Konva.Group; item: LayoutItem; index: number };
+
+/** Follows the `data-theme` attribute the theme toggle writes, so the canvas repaints on switch. */
+function useNightTheme() {
+  const [night, setNight] = useState(false);
+  useEffect(() => {
+    const root = document.documentElement;
+    const update = () => setNight(root.dataset.theme === "night");
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return night;
+}
 
 function SeatCanvas({ room, items, editable = false, selectedId, selectedIds = [], onSelect, onSelectMany, onItemsChange }: Props) {
   const container = useRef<HTMLDivElement>(null);
@@ -30,6 +64,7 @@ function SeatCanvas({ room, items, editable = false, selectedId, selectedIds = [
   const [magnetic, setMagnetic] = useState(true);
   const [guides, setGuides] = useState<{ x?: number; y?: number }>({});
   const [marquee, setMarquee] = useState<{ x: number; y: number; endX: number; endY: number; additive: boolean } | null>(null);
+  const palette = palettes[useNightTheme() ? "night" : "day"];
   const renderItems = items ?? room.items;
   useEffect(() => {
     if (!container.current) return;
@@ -98,7 +133,7 @@ function SeatCanvas({ room, items, editable = false, selectedId, selectedIds = [
       <button aria-label="缩小编辑画布" disabled={zoom <= .5} onClick={() => setZoom((value) => Math.max(.5, value - .25))}><Minus size={15} /></button>
       <span>{Math.round(scale * 100)}%</span>
       <button aria-label="放大编辑画布" disabled={zoom >= 3} onClick={() => setZoom((value) => Math.min(3, value + .25))}><Plus size={15} /></button>
-      <button aria-label="适应编辑窗口" onClick={() => setZoom(1)}><Maximize2 size={15} /></button>
+      <button aria-label="适应编辑窗口" disabled={zoom === 1} onClick={() => setZoom(1)}><Maximize2 size={15} /></button>
     </div></div>
     <div className="canvas-viewport" style={{ height: viewportHeight }}>
       <Stage width={Math.max(width, room.canvas_width * scale)} height={Math.max(viewportHeight, room.canvas_height * scale)} scaleX={scale} scaleY={scale}
@@ -116,13 +151,13 @@ function SeatCanvas({ room, items, editable = false, selectedId, selectedIds = [
         onMouseUp={endMarquee} onMouseLeave={endMarquee}
         onTouchStart={(event) => { if (event.target === event.target.getStage()) onSelect?.(null); }}>
         <Layer listening={false}>
-          <Rect width={room.canvas_width} height={room.canvas_height} fill="#f8fafc" />
+          <Rect width={room.canvas_width} height={room.canvas_height} fill={palette.paper} />
           {editable && <Shape sceneFunc={(context) => {
             for (const major of [false, true]) {
               context.beginPath();
               for (let x = 0; x <= room.canvas_width; x += GRID_SIZE) if ((x % 48 === 0) === major) { context.moveTo(x, 0); context.lineTo(x, room.canvas_height); }
               for (let y = 0; y <= room.canvas_height; y += GRID_SIZE) if ((y % 48 === 0) === major) { context.moveTo(0, y); context.lineTo(room.canvas_width, y); }
-              context.strokeStyle = major ? "#d4deeb" : "#eaf0f6"; context.lineWidth = 1 / scale; context.stroke();
+              context.strokeStyle = major ? palette.gridMajor : palette.gridMinor; context.lineWidth = 1 / scale; context.stroke();
             }
           }} />}
         </Layer>
@@ -130,28 +165,28 @@ function SeatCanvas({ room, items, editable = false, selectedId, selectedIds = [
           {renderItems.map((item) => {
             const selected = selectedSet.has(item.id);
             const seat = item.type === "seat";
-            const palette = colors[item.seat?.display_state ?? "available"];
+            const seatColors = palette.seats[item.seat?.display_state ?? "available"];
             return <Group key={item.id} id={item.id} x={item.x} y={item.y} rotation={item.rotation} draggable={editable} listening={editable || item.type !== "wall"}
               onClick={(event) => onSelect?.(item, event.evt.shiftKey)} onTap={() => onSelect?.(item)}
               onDragStart={(event) => beginDrag(event.target as Konva.Group, item)}
               onDragMove={(event) => moveDrag(event.target as Konva.Group, item)}
               onDragEnd={(event) => finishDrag(event.target as Konva.Group, item)}>
-              <Rect width={item.width} height={item.height} fill={item.type === "wall" ? "#637181" : seat ? palette.fill : "#e4e9ef"}
-                stroke={selected ? "#00448d" : seat ? palette.stroke : "#8997a8"} strokeWidth={selected ? 2.5 / scale : 1}
+              <Rect width={item.width} height={item.height} fill={item.type === "wall" ? palette.wall : seat ? seatColors.fill : palette.fixture}
+                stroke={selected ? palette.selected : seat ? seatColors.stroke : palette.fixtureStroke} strokeWidth={selected ? 2.5 / scale : 1}
                 hitStrokeWidth={item.type === "wall" ? 14 / scale : "auto"}
                 dash={item.type === "aisle" || item.type === "window" ? [6, 4] : undefined}
                 cornerRadius={item.type === "wall" ? 0 : 3} perfectDrawEnabled={false} shadowForStrokeEnabled={false} />
               {item.type !== "wall" && <Text width={item.width} height={item.height} padding={3} align="center" verticalAlign="middle"
                 text={seat ? `${item.label}${item.seat?.occupant ? `\n${item.seat.occupant.name}` : ""}` : item.label}
-                fill="#20344b" fontSize={seat ? 13 : 12} lineHeight={1.35} listening={false} perfectDrawEnabled={false} />}
+                fill={palette.text} fontSize={seat ? 13 : 12} lineHeight={1.35} listening={false} perfectDrawEnabled={false} />}
             </Group>;
           })}
         </Layer>
         <Layer ref={dragLayer} />
         <Layer listening={false}>
-          {guides.x !== undefined && <Line points={[guides.x, 0, guides.x, room.canvas_height]} stroke="#be4b9b" strokeWidth={1 / scale} dash={[5 / scale, 4 / scale]} />}
-          {guides.y !== undefined && <Line points={[0, guides.y, room.canvas_width, guides.y]} stroke="#be4b9b" strokeWidth={1 / scale} dash={[5 / scale, 4 / scale]} />}
-          {marquee && <Rect x={Math.min(marquee.x, marquee.endX)} y={Math.min(marquee.y, marquee.endY)} width={Math.abs(marquee.endX - marquee.x)} height={Math.abs(marquee.endY - marquee.y)} fill="#00448d14" stroke="#00448d" strokeWidth={1 / scale} />}
+          {guides.x !== undefined && <Line points={[guides.x, 0, guides.x, room.canvas_height]} stroke={palette.guide} strokeWidth={1 / scale} dash={[5 / scale, 4 / scale]} />}
+          {guides.y !== undefined && <Line points={[0, guides.y, room.canvas_width, guides.y]} stroke={palette.guide} strokeWidth={1 / scale} dash={[5 / scale, 4 / scale]} />}
+          {marquee && <Rect x={Math.min(marquee.x, marquee.endX)} y={Math.min(marquee.y, marquee.endY)} width={Math.abs(marquee.endX - marquee.x)} height={Math.abs(marquee.endY - marquee.y)} fill={palette.marquee} stroke={palette.selected} strokeWidth={1 / scale} />}
         </Layer>
       </Stage>
     </div>

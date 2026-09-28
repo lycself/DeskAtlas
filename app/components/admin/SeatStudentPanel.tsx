@@ -5,9 +5,8 @@ import { ArrowRightLeft, Pencil, Search, UserPlus } from "lucide-react";
 import { api } from "@/app/lib/api";
 import type { Bootstrap, LayoutItem, Student } from "@/app/lib/types";
 import { StudentProfile } from "../StudentProfile";
+import { emptyStudentForm, StudentFormFields, type StudentFormValues } from "./StudentFormFields";
 
-type ProfileForm = { name: string; student_no: string; adviser: string; enrollment_year: string; program_level: string; major_id: string };
-const blank: ProfileForm = { name: "", student_no: "", adviser: "", enrollment_year: "", program_level: "", major_id: "" };
 type Props = {
   item: LayoutItem | null; roomName: string; virtual?: boolean; version: number;
   moving: Student | null; target: LayoutItem | null;
@@ -24,7 +23,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
   const panel = useRef<HTMLElement>(null);
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState<ProfileForm>(blank);
+  const [form, setForm] = useState<StudentFormValues>(emptyStudentForm);
   const [options, setOptions] = useState<Bootstrap | null>(null);
   const [query, setQuery] = useState("");
   const [allStudents, setAllStudents] = useState(false);
@@ -78,7 +77,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
       enrollment_year: String(student.enrollment_year ?? ""), program_level: student.program_level ?? "", major_id: String(student.major_id ?? "") });
     setEditing(true);
   };
-  const change = (key: keyof ProfileForm, value: string) => { setForm({ ...form, [key]: value }); onDirty(true); };
+  const change = (patch: Partial<StudentFormValues>) => { setForm({ ...form, ...patch }); onDirty(true); };
   const saveProfile = (event: FormEvent) => {
     event.preventDefault();
     const data = { name: form.name.trim(), student_no: form.student_no.trim() || null, adviser: form.adviser.trim() || null,
@@ -96,16 +95,6 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
     onMove(null); setCandidate(null);
   });
 
-  const fields = <>
-    <div className="field-grid two"><label><span>姓名</span><input required maxLength={80} value={form.name} onChange={(e) => change("name", e.target.value)} /></label>
-      <label><span>学号</span><input value={form.student_no} onChange={(e) => change("student_no", e.target.value)} /></label></div>
-    <label><span>导师</span><input value={form.adviser} onChange={(e) => change("adviser", e.target.value)} /></label>
-    <div className="field-grid two"><label><span>年级</span><select value={form.enrollment_year} onChange={(e) => change("enrollment_year", e.target.value)}><option value="">待补全</option>{options?.years.map((year) => <option key={year}>{year}</option>)}</select></label>
-      <label><span>培养层次</span><select value={form.program_level} onChange={(e) => change("program_level", e.target.value)}><option value="">待补全</option><option>硕士</option><option>博士</option></select></label></div>
-    <label><span>教研中心</span><select value={form.major_id} onChange={(e) => change("major_id", e.target.value)}><option value="">待补全</option>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select></label>
-    <p className="derived-email">邮箱：{form.student_no.trim() ? `${form.student_no.trim()}@stu.xmu.edu.cn` : "填写学号后自动生成"}</p>
-  </>;
-
   return <aside ref={panel} className="seat-student-panel" aria-label="工位与学生操作">
     <header><div><span>{moving ? "移动工位" : virtual ? roomName : `${roomName} 房间`}</span><h3>{moving ? moving.name : item ? `${virtual ? "虚拟位置" : "工位"} ${item.label}` : virtual ? "选择一个虚拟位置" : "选择一个工位"}</h3></div></header>
     {error && <p className="form-error" role="alert">{error}</p>}
@@ -118,7 +107,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
       </div> : !item ? <p className="panel-empty">{virtual ? "点击虚拟位置查看和管理学生。" : "点击工位查看学生、修改资料或分配座位。调整桌椅位置请切换到“编辑布局”。"}</p>
         : !item.seat ? <p className="panel-empty">新工位需先保存布局，再分配学生。</p>
           : loading ? <p className="panel-empty" role="status">正在加载学生资料…</p>
-            : editing || creating ? <form className="seat-profile-form" onSubmit={saveProfile}><h4>{creating ? "录入并分配学生" : "编辑学生资料"}</h4>{fields}<div className="panel-actions"><button className="primary-action compact" type="submit">保存{creating ? "并分配" : "资料"}</button><button type="button" onClick={() => { setEditing(false); setCreating(false); onDirty(false); }}>取消</button></div></form>
+            : editing || creating ? <form className="seat-profile-form" onSubmit={saveProfile}><h4>{creating ? "录入并分配学生" : "编辑学生资料"}</h4><StudentFormFields form={form} onChange={change} options={options} /><div className="form-actions"><button className="primary-action compact" type="submit">保存{creating ? "并分配" : "资料"}</button><button type="button" className="secondary-action compact" onClick={() => { setEditing(false); setCreating(false); onDirty(false); }}>取消</button></div></form>
               : student ? <>
                 <StudentProfile person={student} compact />
                 <div className="panel-actions"><button onClick={startEdit}><Pencil />编辑资料</button><button onClick={() => onMove(student)}><ArrowRightLeft />移动工位</button></div>
@@ -129,7 +118,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
                   <label className="check-control"><input type="checkbox" checked={allStudents} onChange={(e) => { setAllStudents(e.target.checked); setCandidate(null); }} />包括已有工位的学生</label>
                   <div className="student-search-results">{results.map((person) => <button key={person.id} aria-pressed={candidate?.id === person.id} onClick={() => setCandidate(person)}><strong>{person.name}</strong><span>{person.student_no || "学号待补全"}</span><small>{person.current_assignment?.room_name ?? "未被分配"}</small></button>)}{!results.length && <p>没有匹配的学生</p>}</div>
                   {candidate && <div className="move-destination"><p>将 {candidate.name} 从 {candidate.current_assignment?.room_name ?? "未被分配"} 调整到 {roomName} · {item.label}。</p><button className="primary-action compact" onClick={() => move(candidate, item.seat!.id)}>确认分配</button></div>}
-                  <button className="text-action" onClick={() => { setForm(blank); setCreating(true); }}><UserPlus />录入新学生</button>
+                  <button className="text-action" onClick={() => { setForm(emptyStudentForm); setCreating(true); }}><UserPlus />录入新学生</button>
                 </div> : <p className="panel-empty">此工位当前不可分配，可在下方调整使用状态。</p>}
       {!moving && item?.seat && !loading && !virtual && !editing && !creating && <details className="panel-secondary"><summary>工位状态与备注</summary><form onSubmit={(event) => {
         event.preventDefault(); void run(async () => { await api(`/api/admin/seats/${item.seat!.id}/status`, { method: "PATCH", body: JSON.stringify({ status, note: note.trim() || null }) }); });

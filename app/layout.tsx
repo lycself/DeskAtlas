@@ -4,11 +4,10 @@ import type { ReactNode } from "react";
 import "./globals.css";
 import "./public-space.css";
 import "./admin-workspace.css";
-import "./workspace-ui.css";
 import "./panel.css";
 
 export const metadata: Metadata = {
-  title: "DeskAtlas · 研究生工位地图",
+  title: { default: "DeskAtlas · 研究生工位地图", template: "%s · DeskAtlas" },
   description: "研究生自习室工位可视化、申请与管理平台",
 };
 

@@ -36,10 +36,16 @@ const sections: Array<{ id: Section; label: string; icon: typeof Map }> = [
   { id: "overview", label: "运行概览", icon: LayoutDashboard },
   { id: "applications", label: "申请审批", icon: Activity },
   { id: "rooms", label: "房间与工位", icon: Map },
-  { id: "students", label: "学生与工位", icon: Users },
+  { id: "students", label: "学生名册", icon: Users },
   { id: "import", label: "数据导入", icon: FileSpreadsheet },
-  { id: "settings", label: "教研中心与设置", icon: Settings },
+  { id: "settings", label: "系统设置", icon: Settings },
 ];
+
+/** Sections live in the URL hash (`#rooms`, `#rooms/12`) so reload and the back button keep working. */
+function sectionFromHash(): Section {
+  const head = window.location.hash.replace(/^#/, "").split("/")[0];
+  return sections.some((item) => item.id === head) ? (head as Section) : "overview";
+}
 
 export function AdminPortal() {
   const router = useRouter();
@@ -60,6 +66,18 @@ export function AdminPortal() {
       });
   }, [router]);
 
+  useEffect(() => {
+    if (!ready) return;
+    const sync = () => {
+      const next = sectionFromHash();
+      setSection(next);
+      setVisited((current) => current.includes(next) ? current : [...current, next]);
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, [ready]);
+
   const logout = async () => {
     try {
       await api("/api/admin/logout", { method: "POST" });
@@ -67,7 +85,7 @@ export function AdminPortal() {
     } catch { setSessionError("退出失败，请检查网络后重试。"); }
   };
 
-  if (!ready) return <main className="admin-loading"><Brand compact /><p>{sessionError || "正在验证管理员会话…"}</p>{sessionError && <button onClick={() => window.location.reload()}>重试</button>}</main>;
+  if (!ready) return <main className="admin-loading"><Brand compact label="DeskAtlas 管理端" href="/admin" /><p>{sessionError || "正在验证管理员会话…"}</p>{sessionError && <button className="secondary-action" onClick={() => window.location.reload()}>重试</button>}</main>;
 
   const currentSection = sections.find((item) => item.id === section);
 
@@ -75,6 +93,7 @@ export function AdminPortal() {
     setSection(next);
     setVisited((current) => current.includes(next) ? current : [...current, next]);
     setNavOpen(false);
+    if (window.location.hash.replace(/^#/, "").split("/")[0] !== next) window.history.pushState(null, "", `#${next}`);
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
@@ -83,13 +102,13 @@ export function AdminPortal() {
       <div className="admin-header-wrapper">
         <header className="admin-topbar" ref={headerRef}>
           <span className="nav-glass" aria-hidden="true" />
-          <Brand href="/admin" />
-          <button className="mobile-sidebar-toggle" aria-label="打开导航" onClick={() => setNavOpen(true)}><Menu /></button>
-          <div className="admin-breadcrumb"><span>管理工作台</span><i>/</i><strong>{currentSection?.label}</strong></div>
+          <Brand href="/admin" label="DeskAtlas 管理端" />
+          <button className="mobile-sidebar-toggle icon-button" aria-label="打开导航" onClick={() => setNavOpen(true)}><Menu /></button>
+          <div className="admin-breadcrumb"><span>管理端</span><i>/</i><strong>{currentSection?.label}</strong></div>
           <div className="admin-topbar-actions">
-            <Link className="admin-home-link" href="/" aria-label="返回首页" title="返回首页"><House size={17} /></Link>
+            <Link className="icon-button" href="/" aria-label="打开学生端" title="打开学生端"><House size={17} /></Link>
             <ThemeToggle />
-            <button className="topbar-logout" onClick={logout} aria-label="退出登录" title="退出登录"><LogOut size={17} /></button>
+            <button className="icon-button" onClick={logout} aria-label="退出登录" title="退出登录"><LogOut size={17} /></button>
           </div>
         </header>
       </div>
@@ -97,11 +116,11 @@ export function AdminPortal() {
         <button className="sidebar-edge-toggle" aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((value) => !value)}>
           {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
-        <div className="admin-brand"><span>工作空间</span><button className="sidebar-mobile-close" aria-label="关闭导航" onClick={() => setNavOpen(false)}><X /></button></div>
-        <nav>
+        <div className="admin-brand"><span>管理端</span><button className="sidebar-mobile-close icon-button" aria-label="关闭导航" onClick={() => setNavOpen(false)}><X /></button></div>
+        <nav aria-label="管理端导航">
           {sections.map((item) => {
             const Icon = item.icon;
-            return <button key={item.id} title={item.label} className={section === item.id ? "active" : ""} onClick={() => navigate(item.id)}><Icon size={18} /><span>{item.label}</span></button>;
+            return <button key={item.id} title={item.label} className={section === item.id ? "active" : ""} aria-current={section === item.id ? "page" : undefined} onClick={() => navigate(item.id)}><Icon size={18} /><span>{item.label}</span></button>;
           })}
         </nav>
         <div className="sidebar-footer"><span>DeskAtlas · 管理端</span></div>
@@ -113,7 +132,7 @@ export function AdminPortal() {
         {visited.includes("applications") && <div hidden={section !== "applications"}><AdminApplications active={section === "applications"} /></div>}
         {visited.includes("rooms") && <div hidden={section !== "rooms"}><AdminRooms active={section === "rooms"} /></div>}
         {visited.includes("students") && <div hidden={section !== "students"}><AdminStudents active={section === "students"} /></div>}
-        {visited.includes("import") && <div hidden={section !== "import"}><AdminImport /></div>}
+        {visited.includes("import") && <div hidden={section !== "import"}><AdminImport active={section === "import"} /></div>}
         {visited.includes("settings") && <div hidden={section !== "settings"}><AdminSettings active={section === "settings"} /></div>}
       </section>
     </main>

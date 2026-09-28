@@ -9,7 +9,7 @@ from typing import Any, Annotated
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select, or_
+from sqlalchemy import Text, cast, func, select, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, defer
 
@@ -182,15 +182,25 @@ def room_seat_data(db: Session, rooms: list[Room]) -> dict[str, dict[str, Any]]:
     return {seat.id: seat_public_data(db, seat, state=(assignments.get(seat.id), seat.id in pending)) for seat in seats}
 
 
+def layout_has_draft(room: Room) -> bool:
+    """True when the saved draft differs from what students currently see."""
+    if room.is_virtual:
+        return False
+    return (room.draft_layout or []) != (room.published_layout or [])
+
+
 def serialize_rooms(db: Session, rooms: list[Room], *, draft: bool = False, summary_only: bool = False,
-                    major_order: dict[str, int] | None = None) -> list[dict[str, Any]]:
+                    major_order: dict[str, int] | None = None,
+                    draft_flags: dict[int, bool] | None = None) -> list[dict[str, Any]]:
     seats = room_seat_data(db, rooms)
     if major_order is None and not summary_only and any(room.is_virtual for room in rooms):
         major_order = {name: index for index, name in enumerate(db.scalars(
             select(Major.name).order_by(Major.sort_order, Major.name)
         ))}
     return [serialize_room(db, room, draft=draft, seat_data=seats, summary_only=summary_only,
-                           major_order=major_order) for room in rooms]
+                           major_order=major_order,
+                           has_draft=None if draft_flags is None else draft_flags.get(room.id, False))
+            for room in rooms]
 
 
 def virtual_layout(seats: dict[str, dict[str, Any]], order: dict[str, int]) -> list[dict[str, Any]]:
@@ -221,7 +231,8 @@ def virtual_layout(seats: dict[str, dict[str, Any]], order: dict[str, int]) -> l
 
 
 def serialize_room(db: Session, room: Room, *, draft: bool = False, seat_data: dict | None = None,
-                   summary_only: bool = False, major_order: dict[str, int] | None = None) -> dict[str, Any]:
+                   summary_only: bool = False, major_order: dict[str, int] | None = None,
+                   has_draft: bool | None = None) -> dict[str, Any]:
     layout = [] if summary_only else (room.draft_layout if draft else room.published_layout)
     all_seats = seat_data if seat_data is not None else room_seat_data(db, [room])
     seats = {seat.id: all_seats[seat.id] for seat in room.seats if seat.id in all_seats}
@@ -255,6 +266,7 @@ def serialize_room(db: Session, room: Room, *, draft: bool = False, seat_data: d
         "is_published": room.is_published,
         "is_archived": room.is_archived,
         "published_at": room.published_at,
+        "has_draft": layout_has_draft(room) if has_draft is None else has_draft,
         "items": items,
         "seat_counts": dict(Counter(seat["display_state"] for seat in seats.values())),
     }
@@ -596,9 +608,18 @@ def list_rooms(db: Db, _: Admin, include_archived: bool = False, summary_only: b
     query = select(Room).options(joinedload(Room.seats)).order_by(Room.name)
     if not include_archived:
         query = query.where(Room.is_archived.is_(False))
-    if summary_only:
-        query = query.options(defer(Room.draft_layout), defer(Room.published_layout))
-    return serialize_rooms(db, db.scalars(query).unique().all(), draft=True, summary_only=summary_only)
+    if not summary_only:
+        return serialize_rooms(db, db.scalars(query).unique().all(), draft=True)
+    # The summary list skips the two layout blobs but still reports whether a
+    # saved draft differs from the published layout, so the UI can flag it.
+    differs = func.coalesce(cast(Room.draft_layout, Text), "[]") != func.coalesce(cast(Room.published_layout, Text), "[]")
+    rows = db.execute(
+        query.add_columns(differs.label("has_draft"))
+        .options(defer(Room.draft_layout), defer(Room.published_layout))
+    ).unique().all()
+    rooms = [row[0] for row in rows]
+    flags = {row[0].id: bool(row[1]) and not row[0].is_virtual for row in rows}
+    return serialize_rooms(db, rooms, draft=True, summary_only=True, draft_flags=flags)
 
 
 @app.post("/api/admin/rooms", status_code=201)
