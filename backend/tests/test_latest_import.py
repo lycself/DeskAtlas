@@ -116,3 +116,59 @@ def test_survey_wall_import_does_not_copy_adjacent_room_border():
     assert {'x': 133, 'y': 121, 'width': 4, 'height': 66} in walls
     assert {'x': 39, 'y': 55, 'width': 94, 'height': 4} in walls
     assert sum(w['x'] == 39 and w['width'] == 4 for w in rooms['302']['walls']) == 5
+
+
+def test_latest_ranges_include_perimeter_columns():
+    from openpyxl.styles import Border, Side
+    from backend.app.latest_import import LATEST_MAP_RANGES
+    from backend.app.office_import import surveyed_preview
+
+    roster = workbook_bytes([
+        ['房间', '座位号', '姓名'],
+        [311, 1, None], [406, 1, None], [680, 1, None],
+    ])
+    book = Workbook()
+    sheet = book.active
+    for seat_cell, wall_cell, side in (
+        ('N8', 'M3', 'left'),
+        ('AL19', 'AK14', 'left'),
+        ('N77', 'S75', 'right'),
+    ):
+        sheet[seat_cell] = 1
+        sheet[wall_cell].border = Border(**{side: Side(style='medium')})
+    sheet['Q10'], sheet['AO21'], sheet['M79'] = 311, 406, 680
+    stream = BytesIO()
+    book.save(stream)
+    rooms = surveyed_preview(roster, stream.getvalue(), map_ranges={name: LATEST_MAP_RANGES[name]
+                             for name in ('311', '406', '680')})['rooms']
+    assert {'x': 39, 'y': 121, 'width': 4, 'height': 66} in rooms['311']['walls']
+    assert {'x': 39, 'y': 121, 'width': 4, 'height': 66} in rooms['406']['walls']
+    assert {'x': 697, 'y': 121, 'width': 4, 'height': 66} in rooms['680']['walls']
+
+
+def test_virtual_layout_uses_center_order_and_distinct_positions():
+    from backend.app.main import serialize_room
+    from backend.app.models import Major
+
+    engine = create_engine('sqlite://')
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        first = Major(name='甲组', sort_order=1)
+        second = Major(name='乙组', sort_order=2)
+        room = Room(name='未被分配', is_virtual=True, is_published=True)
+        db.add_all([first, second, room])
+        db.flush()
+        for code, name, center in [('V1', '丙', second), ('V2', '乙', first), ('V3', '甲', first)]:
+            student = Student(name=name, major_id=center.id)
+            seat = Seat(room_id=room.id, code=code)
+            db.add_all([student, seat])
+            db.flush()
+            db.add(Assignment(student_id=student.id, seat_id=seat.id))
+        db.flush()
+        items = serialize_room(db, room)['items']
+        seats = [item for item in items if item['type'] == 'seat']
+        assert {item['seat']['occupant']['name'] for item in seats[:2]} == {'甲', '乙'}
+        assert seats[2]['seat']['occupant']['name'] == '丙'
+        assert [item['label'] for item in seats] == ['01', '02', '03']
+        assert len({(item['x'], item['y']) for item in seats}) == 3
+        assert [item['label'] for item in items if item['type'] == 'label'] == ['甲组', '乙组']

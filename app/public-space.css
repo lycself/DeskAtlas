@@ -94,6 +94,12 @@ body:has(.student-shell) { background: #f2f6fb; }
 .unplaced-seats header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }.unplaced-seats header strong { font-size: 11px; color: #7d785c; font-weight: 550; }.unplaced-seats header span { font-size: 10px; color: #9b988b; }
 .unplaced-seats > div { display: flex; flex-wrap: wrap; gap: 7px; }.unplaced-seat { display: flex; align-items: center; gap: 9px; background: #fff; border: 1px solid #e3e4db; border-radius: 4px; padding: 8px 10px; font-size: 10px; }.unplaced-seat b { color: #60758e; font-size: 11px; font-weight: 550; }.unplaced-seat span { color: var(--ink-soft); }.unplaced-seat:hover { border-color: var(--accent); }.unplaced-equipment { padding: 8px 10px; color: var(--ink-soft); font-size: 10px; }
 .plan-footer { display: flex; justify-content: space-between; padding: 14px 24px 17px; color: #8190a2; font-size: 9px; }
+.virtual-plan { margin: 0 20px 20px; padding: 20px 22px; border: 1px solid #e5ebf5; border-radius: 7px; background: #f7f9fd; }
+.virtual-plan > header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }.virtual-plan > header strong { font-size: 13px; font-weight: 600; }.virtual-plan > header span { font-size: 10px; color: var(--ink-soft); }
+.virtual-plan-group { margin-top: 22px; }.virtual-plan-group:first-of-type { margin-top: 0; }.virtual-plan-group h3 { display: flex; align-items: baseline; gap: 9px; margin: 0 0 10px; font-size: 12px; font-weight: 600; }.virtual-plan-group h3 small { font-size: 10px; font-weight: 400; color: var(--ink-soft); }
+.virtual-position-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 9px; }.virtual-position { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; padding: 12px; border: 1px solid #b1c4de; border-radius: 5px; background: #eaf0f9; color: var(--ink); text-align: left; cursor: pointer; }.virtual-position:hover, .virtual-position.selected { border-color: var(--accent); background: #dceaff; }.virtual-position small { font-size: 9px; color: var(--accent); }.virtual-position strong { font-size: 14px; font-weight: 600; }.virtual-position span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--ink-soft); }
+.virtual-position.placeholder { border-style: dashed; background: transparent; cursor: default; }.virtual-position.placeholder:hover { border-color: #b1c4de; background: transparent; }.virtual-position.placeholder strong { font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.virtual-plan-empty { padding: 28px 0; text-align: center; color: var(--ink-soft); font-size: 11px; }.virtual-plan footer { margin-top: 20px; font-size: 9px; color: var(--ink-soft); }
 .student-shell button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }.student-shell .detail-drawer { background: #fff; backdrop-filter: none; border-left: 1px solid var(--line); border-radius: 0; box-shadow: -12px 0 60px #173c6815; }
 
 :root[data-theme="night"] body:has(.student-shell) { background: #070d18; }
@@ -118,6 +124,7 @@ body:has(.student-shell) { background: #f2f6fb; }
 :root[data-theme="night"] .unplaced-seats { background: #182338; border-color: #3f4c63; }
 :root[data-theme="night"] .unplaced-seats header strong { color: #c5c095; }
 :root[data-theme="night"] .unplaced-seat { background: #1b2940; border-color: #35445f; }
+:root[data-theme="night"] .virtual-plan { background: #101d31; border-color: #263951; }:root[data-theme="night"] .virtual-position { background: #1a2c47; border-color: #456186; }:root[data-theme="night"] .virtual-position:hover, :root[data-theme="night"] .virtual-position.selected { background: #25466f; border-color: #8ebaff; }
 
 @media (max-width: 1100px) {
   .public-header-wrapper { width: calc(100% - 40px); }

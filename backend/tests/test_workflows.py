@@ -62,6 +62,33 @@ def test_room_affiliations_are_public_and_preserved_by_partial_updates() -> None
         assert client.patch(endpoint, json={"major_names": []}).json()["major_names"] == []
 
 
+def test_discard_layout_restores_published_draft_without_republishing() -> None:
+    with TestClient(app) as client:
+        login(client)
+        published, _ = create_published_room(client, "取消布局房间", ["1", "2"])
+        endpoint = f"/api/admin/rooms/{published['id']}"
+        draft_items = [
+            {key: value for key, value in item.items() if key != "seat"}
+            for item in published["items"]
+        ]
+        draft_items[0]["label"] = "3"
+        draft_items[1]["label"] = "4"
+        draft_items += [
+            {"id": "draft-new-seat", "type": "seat", "label": "1", "x": 50, "y": 150, "width": 76, "height": 48, "rotation": 0},
+            {"id": "draft-wall", "type": "wall", "label": "墙", "x": 45, "y": 35, "width": 250, "height": 6, "rotation": 0},
+        ]
+        saved = client.put(f"{endpoint}/layout", json={"items": draft_items})
+        assert saved.status_code == 200
+        assert len(saved.json()["items"]) == 4
+
+        discarded = client.post(f"{endpoint}/layout/discard")
+        assert discarded.status_code == 200
+        assert discarded.json()["items"] == published["items"]
+        assert client.get(f"{endpoint}/layout").json()["items"] == published["items"]
+        assert client.get(f"/api/public/rooms/{published['id']}").json()["items"] == published["items"]
+        assert discarded.json()["seat_counts"] == published["seat_counts"]
+
+
 def test_import_preview_flags_legacy_variants_and_equipment() -> None:
     book = Workbook()
     sheet = book.active

@@ -107,7 +107,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
   </>;
 
   return <aside ref={panel} className="seat-student-panel" aria-label="工位与学生操作">
-    <header><div><span>{moving ? "移动工位" : virtual ? roomName : `${roomName} 房间`}</span><h3>{moving ? moving.name : item ? `工位 ${item.label}` : "选择一个工位"}</h3></div></header>
+    <header><div><span>{moving ? "移动工位" : virtual ? roomName : `${roomName} 房间`}</span><h3>{moving ? moving.name : item ? `${virtual ? "虚拟位置" : "工位"} ${item.label}` : virtual ? "选择一个虚拟位置" : "选择一个工位"}</h3></div></header>
     {error && <p className="form-error" role="alert">{error}</p>}
     <fieldset disabled={busy}>
       {moving ? <div className="seat-move-flow">
@@ -115,7 +115,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
         <p>点击图上的空闲工位作为目标，也可先切换房间。</p>
         {target?.seat ? <div className="move-destination"><span>目标工位</span><strong>{roomName} · {target.label}</strong><button className="primary-action compact" onClick={() => move(moving, target.seat!.id)}>确认移动到这里</button></div> : <p className="form-hint">尚未选择目标工位</p>}
         <div className="panel-actions"><button onClick={() => move(moving, "virtual:翔安")}>移至翔安</button><button onClick={() => move(moving, "virtual:未被分配")}>移至未被分配</button><button onClick={() => onMove(null)}>取消移动</button></div>
-      </div> : !item ? <p className="panel-empty">点击工位查看学生、修改资料或分配座位。调整桌椅位置请切换到“编辑布局”。</p>
+      </div> : !item ? <p className="panel-empty">{virtual ? "点击虚拟位置查看和管理学生。" : "点击工位查看学生、修改资料或分配座位。调整桌椅位置请切换到“编辑布局”。"}</p>
         : !item.seat ? <p className="panel-empty">新工位需先保存布局，再分配学生。</p>
           : loading ? <p className="panel-empty" role="status">正在加载学生资料…</p>
             : editing || creating ? <form className="seat-profile-form" onSubmit={saveProfile}><h4>{creating ? "录入并分配学生" : "编辑学生资料"}</h4>{fields}<div className="panel-actions"><button className="primary-action compact" type="submit">保存{creating ? "并分配" : "资料"}</button><button type="button" onClick={() => { setEditing(false); setCreating(false); onDirty(false); }}>取消</button></div></form>

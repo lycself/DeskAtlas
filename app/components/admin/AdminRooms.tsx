@@ -5,12 +5,13 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
-import type { LayoutItem, Room, Student } from "@/app/lib/types";
+import type { LayoutItem, Major, Room, Student } from "@/app/lib/types";
 import { snappedDelta, alignItems, moveItems, itemBounds, type Alignment } from "@/app/lib/seat-layout";
 import { RoomPlan } from "../RoomPlan";
 import { SeatStudentPanel } from "./SeatStudentPanel";
 import { SeatMap } from "../SeatMap";
 import { MajorTags } from "../MajorTags";
+import { VirtualRoomPlan } from "../VirtualRoomPlan";
 
 const fixtureDefaults: Record<string, { label: string; width: number; height: number }> = {
   door: { label: "门", width: 82, height: 22 },
@@ -39,6 +40,7 @@ function LayoutNumberField({ label, value, onChange }: { label: string; value: n
 
 export function AdminRooms({ active = true }: { active?: boolean }) {
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [majors, setMajors] = useState<Major[]>([]);
   const [room, setRoom] = useState<Room | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -82,6 +84,14 @@ export function AdminRooms({ active = true }: { active?: boolean }) {
     finally { setLoading(false); }
   };
   useEffect(() => { if (active) void load(); }, [active]);
+  useEffect(() => {
+    if (!active) return;
+    const controller = new AbortController();
+    api<{ majors: Array<Major & { is_active?: boolean }> }>("/api/admin/options", { signal: controller.signal })
+      .then((options) => setMajors(options.majors.filter((major) => major.is_active !== false)))
+      .catch((caught) => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "加载教研组失败"); });
+    return () => controller.abort();
+  }, [active]);
   useEffect(() => {
     if (selectedRoomId === null || !active) return;
     const controller = new AbortController();
@@ -136,6 +146,12 @@ export function AdminRooms({ active = true }: { active?: boolean }) {
     const next = future[0]; if (!next) return;
     setPast((history) => [...history, items]); setItems(next); setFuture((history) => history.slice(1));
   };
+  const undoAllLayoutChanges = () => {
+    if (!room || !dirty || !confirm("撤销本次未保存的所有布局修改，恢复到上次保存的草稿？")) return;
+    setItems(room.items); setPast([]); setFuture([]);
+    setSelectedId(null); setSelectedIds([]); setShowGrid(false);
+    setError(""); setMessage("已撤销本次未保存的布局修改");
+  };
 
   const createRoom = async (event: FormEvent) => {
     event.preventDefault(); if (!newRoom.trim() || busyRef.current || panelBusy.current) return;
@@ -189,6 +205,13 @@ export function AdminRooms({ active = true }: { active?: boolean }) {
     const value = fixtureDefaults[type];
     const position = freePosition(value.width, value.height); if (!position) return;
     applyItems([...items, { id: crypto.randomUUID(), type: type as LayoutItem["type"], label: value.label, ...position, width: value.width, height: value.height, rotation: 0 }]);
+  };
+  const addWall = (direction: "horizontal" | "vertical") => {
+    const width = direction === "horizontal" ? 120 : 6;
+    const height = direction === "horizontal" ? 6 : 120;
+    const position = freePosition(width, height); if (!position) return;
+    const wall: LayoutItem = { id: crypto.randomUUID(), type: "wall", label: "墙", ...position, width, height, rotation: 0 };
+    applyItems([...items, wall]); selectItem(wall);
   };
   const generateGrid = () => {
     if (!room || !Number.isInteger(gridRows) || !Number.isInteger(gridCols) || !Number.isInteger(gridStart) || gridRows < 1 || gridRows > 20 || gridCols < 1 || gridCols > 20 || gridStart < 1) { setError("请输入有效的行列数（1–20）和起始编号。"); return; }
@@ -260,6 +283,19 @@ export function AdminRooms({ active = true }: { active?: boolean }) {
     catch (caught) { setError(caught instanceof Error ? caught.message : "保存失败"); }
     finally { busyRef.current = false; setBusy(false); }
   };
+  const cancelLayoutChanges = async () => {
+    if (!room || busyRef.current || !confirm(`取消布局修改？未发布的修改（包括已保存草稿）将被放弃，并返回工位管理。${metadataDirty ? "未保存的房间信息也将被放弃。" : ""}`)) return;
+    busyRef.current = true; setBusy(true); setError(""); setMessage("");
+    try {
+      const updated = await api<Room>(`/api/admin/rooms/${room.id}/layout/discard`, { method: "POST" });
+      updateRoom(updated, true);
+      setSelectedId(null); setSelectedIds([]); setShowGrid(false); setMode("manage");
+      setRoomForm({ name: updated.name, building: updated.building ?? "", floor: updated.floor ?? "", description: updated.description ?? "", majors: (updated.major_names ?? []).join("、") });
+      setShowRoomSettings(false);
+      setMessage("已取消布局修改，返回工位管理");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "取消布局修改失败"); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
   const publish = async () => {
     if (!room || busyRef.current) return;
     if (metadataDirty) { setError("请先保存房间信息，再发布平面图。"); return; }
@@ -324,8 +360,8 @@ export function AdminRooms({ active = true }: { active?: boolean }) {
           {showRoomSettings && !room.is_virtual && <form className="room-settings-form" onSubmit={saveRoomDetails}><div className="field-grid three"><label><span>房间名称</span><input required value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} /></label><label><span>楼层</span><input value={roomForm.floor} onChange={(e) => setRoomForm({ ...roomForm, floor: e.target.value })} /></label><label><span>楼栋</span><input value={roomForm.building} onChange={(e) => setRoomForm({ ...roomForm, building: e.target.value })} /></label></div><label><span>所属教研中心（多个用顿号分隔）</span><input value={roomForm.majors} onChange={(e) => setRoomForm({ ...roomForm, majors: e.target.value })} /></label><label><span>房间说明</span><input value={roomForm.description} onChange={(e) => setRoomForm({ ...roomForm, description: e.target.value })} /></label><div className="panel-actions"><button disabled={busy}>保存房间信息</button><button type="button" className="danger-plain" onClick={archiveRoom}><Archive />归档房间</button></div></form>}
           {mode === "edit" && !room.is_virtual ? <fieldset disabled={busy}>
             <div className="layout-toolbar">
-              <div className="tool-group"><button onClick={addSeat}><Armchair />添加工位</button><button aria-expanded={showGrid} onClick={() => setShowGrid(!showGrid)}><Grid3X3 />批量添加</button><select aria-label="添加房间设施" value="" onChange={(e) => { if (e.target.value) addFixture(e.target.value); }}><option value="">添加设施…</option>{Object.entries(fixtureDefaults).map(([type, value]) => <option key={type} value={type}>{value.label}</option>)}</select></div>
-              <div className="tool-group"><button aria-label="撤销布局修改" title="撤销（Ctrl / ⌘ Z）" onClick={undo} disabled={!past.length}><Undo2 /></button><button aria-label="重做布局修改" title="重做（Ctrl / ⌘ Shift Z）" onClick={redo} disabled={!future.length}><Redo2 /></button><button disabled={!dirty} onClick={save}><Save />保存草稿</button><button className="primary-action compact" onClick={publish}><Upload />发布布局</button></div>
+              <div className="tool-group"><button onClick={addSeat}><Armchair />添加工位</button><button aria-expanded={showGrid} onClick={() => setShowGrid(!showGrid)}><Grid3X3 />批量添加</button><button onClick={() => addWall("horizontal")}><Plus />添加横墙</button><button onClick={() => addWall("vertical")}><Plus />添加竖墙</button><select aria-label="添加房间设施" value="" onChange={(e) => { if (e.target.value) addFixture(e.target.value); }}><option value="">添加设施…</option>{Object.entries(fixtureDefaults).map(([type, value]) => <option key={type} value={type}>{value.label}</option>)}</select></div>
+              <div className="tool-group"><button aria-label="撤销布局修改" title="撤销（Ctrl / ⌘ Z）" onClick={undo} disabled={!past.length}><Undo2 />撤销</button><button aria-label="重做布局修改" title="重做（Ctrl / ⌘ Shift Z）" onClick={redo} disabled={!future.length}><Redo2 />重做</button><button className="danger-plain" title="撤销本次未保存的所有布局修改" disabled={!dirty} onClick={undoAllLayoutChanges}><Undo2 />撤销所有修改</button><button disabled={!dirty} onClick={save}><Save />保存草稿</button><button className="danger-plain" title="放弃所有未发布的布局修改并退出编辑" onClick={cancelLayoutChanges}><X />取消修改</button><button className="primary-action compact" onClick={publish}><Upload />发布布局</button></div>
             </div>
             {showGrid && <div className="grid-generator"><label>行<input aria-label="矩阵行数" type="number" min={1} max={20} value={gridRows} onChange={(e) => setGridRows(Number(e.target.value))} /></label><label>列<input aria-label="矩阵列数" type="number" min={1} max={20} value={gridCols} onChange={(e) => setGridCols(Number(e.target.value))} /></label><label>起始编号<input aria-label="矩阵起始编号" type="number" min={1} value={gridStart} onChange={(e) => setGridStart(Number(e.target.value))} /></label><label>编号方向<select value={gridDirection} onChange={(e) => setGridDirection(e.target.value as "row" | "column")}><option value="row">先行后列</option><option value="column">先列后行</option></select></label><button onClick={generateGrid}>添加到空白位置</button></div>}
             <div className="layout-alignment-toolbar" role="group" aria-label="对齐与分布"><span>{selection.length ? `已选 ${selection.length} 项` : "框选或 Shift 点击多选"}</span>{([["left", "左对齐"], ["cx", "水平居中"], ["right", "右对齐"], ["top", "顶对齐"], ["cy", "垂直居中"], ["bottom", "底对齐"], ["horizontal", "水平等距"], ["vertical", "垂直等距"]] as [Alignment, string][]).map(([value, label]) => <button key={value} disabled={selection.length < (value === "horizontal" || value === "vertical" ? 3 : 2)} onClick={() => arrange(value)}>{label}</button>)}</div>
@@ -335,13 +371,13 @@ export function AdminRooms({ active = true }: { active?: boolean }) {
                 <div className="field-grid two">{([['x', 'X 坐标'], ['y', 'Y 坐标'], ['width', '宽度'], ['height', '高度']] as const).map(([key, label]) => <LayoutNumberField key={`${selected.id}-${key}`} label={label} value={selected[key]} onChange={(value) => modifySelected({ [key]: value })} />)}</div>
                 <div className="panel-actions"><button onClick={rotateSelected}><RotateCw />旋转 90°</button><button onClick={duplicateSelected}><Copy />复制</button><button className="danger-plain" onClick={deleteSelected}><Trash2 />移除</button></div>
                 {selected.seat?.occupant && <p className="form-hint">使用人：{selected.seat.occupant.name}。人员调整请切换“工位管理”。</p>}
-              </> : <p>选择工位后可调整尺寸和坐标；拖动空白区域可框选多个元素。</p>}<p className="keyboard-hint">方向键微调 1 px<br />Shift + 方向键移动 12 px<br />墙体固定，不参与框选</p></aside>
+              </> : <p>选择工位、墙体或设施后可调整尺寸和坐标；拖动空白区域可框选多个元素。</p>}<p className="keyboard-hint">方向键微调 1 px<br />Shift + 方向键移动 12 px<br />墙体可选中、拖动和调整尺寸</p></aside>
             </div>
           </fieldset> : <>
             {movingStudent && <div className="move-instruction" role="status"><ArrowRightLeft size={16} /><span>正在为 <strong>{movingStudent.name}</strong> 选择新工位。可切换房间，再点击绿色空位。</span><button aria-label="取消移动" onClick={() => { setMovingStudent(null); setMoveTarget(null); }}><X /></button></div>}
-            <div className="manage-toolbar"><label className="search-field"><Search size={16} /><input aria-label="搜索房间中的学生或工位" placeholder="姓名、导师或工位编号" value={query} onChange={(e) => setQuery(e.target.value)} /></label><div className="segmented-control"><button aria-pressed={roomView === "map" && !room.is_virtual} disabled={room.is_virtual} onClick={() => setRoomView("map")}><Grid3X3 />平面图</button><button aria-pressed={roomView === "list" || !!room.is_virtual} onClick={() => setRoomView("list")}><List />列表</button></div></div>
-            <div className="room-manage-body"><div className="managed-map"><div className="manage-legend">{Object.entries(seatStateLabel).map(([state, label]) => <span key={state}><i className={`state-dot ${state}`} />{label} {room.seat_counts[state as keyof Room["seat_counts"]] ?? 0}</span>)}</div>
-              {roomView === "map" && !room.is_virtual ? <RoomPlan key={room.id} room={{ ...room, items }} query={query} onSelect={selectManaged} selectedId={moveTarget?.id ?? selectedId} choosingTarget={!!movingStudent} /> : <div className="seat-table-wrap"><table className="data-table managed-seat-list"><thead><tr><th>工位</th><th>使用人</th><th>状态</th><th /></tr></thead><tbody>{items.filter((item) => item.type === "seat" && `${item.label} ${item.seat?.occupant?.name ?? ''} ${item.seat?.occupant?.adviser ?? ''}`.includes(query.trim())).map((item) => <tr key={item.id} className={selectedId === item.id ? "selected" : ""}><td>{item.label}</td><td>{item.seat?.occupant?.name ?? "—"}</td><td>{seatStateLabel[item.seat?.display_state ?? "available"]}</td><td><button className="row-action" onClick={() => selectManaged(item)}>管理</button></td></tr>)}</tbody></table></div>}
+            <div className="manage-toolbar"><label className="search-field"><Search size={16} /><input aria-label="搜索房间中的学生或工位" placeholder={room.is_virtual ? "姓名、导师或虚拟位置编号" : "姓名、导师或工位编号"} value={query} onChange={(e) => setQuery(e.target.value)} /></label><div className="segmented-control"><button aria-pressed={roomView === "map"} onClick={() => setRoomView("map")}><Grid3X3 />{room.is_virtual ? "位置图" : "平面图"}</button><button aria-pressed={roomView === "list"} onClick={() => setRoomView("list")}><List />列表</button></div></div>
+            <div className="room-manage-body"><div className="managed-map"><div className="manage-legend">{room.is_virtual ? <span>按教研组排列 · {items.filter((item) => item.type === "seat").length} 人 · 虚拟位置不可申请</span> : Object.entries(seatStateLabel).map(([state, label]) => <span key={state}><i className={`state-dot ${state}`} />{label} {room.seat_counts[state as keyof Room["seat_counts"]] ?? 0}</span>)}</div>
+              {roomView === "map" ? room.is_virtual ? <VirtualRoomPlan room={{ ...room, items }} majors={majors} query={query} onSelect={selectManaged} selectedId={selectedId} context="admin" /> : <RoomPlan key={room.id} room={{ ...room, items }} query={query} onSelect={selectManaged} selectedId={moveTarget?.id ?? selectedId} choosingTarget={!!movingStudent} /> : <div className="seat-table-wrap"><table className="data-table managed-seat-list"><thead><tr><th>{room.is_virtual ? "虚拟位置" : "工位"}</th><th>使用人</th><th>状态</th><th /></tr></thead><tbody>{items.filter((item) => item.type === "seat" && `${item.label} ${item.seat?.occupant?.name ?? ''} ${item.seat?.occupant?.adviser ?? ''}`.includes(query.trim())).map((item) => <tr key={item.id} className={selectedId === item.id ? "selected" : ""}><td>{item.label}</td><td>{item.seat?.occupant?.name ?? "—"}</td><td>{room.is_virtual ? room.name : seatStateLabel[item.seat?.display_state ?? "available"]}</td><td><button className="row-action" onClick={() => selectManaged(item)}>管理</button></td></tr>)}</tbody></table></div>}
             </div><SeatStudentPanel key={`${room.id}-${selected?.id ?? "none"}`} item={selected} roomName={room.name} virtual={room.is_virtual} version={seatVersion} moving={movingStudent} target={moveTarget} onMove={(student) => {
               if (!student && moveTarget) { setSelectedId(moveTarget.id); setSelectedIds([moveTarget.id]); }
               setMovingStudent(student); setMoveTarget(null);

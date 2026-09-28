@@ -209,20 +209,56 @@ def room_seat_data(db: Session, rooms: list[Room]) -> dict[str, dict[str, Any]]:
     return {seat.id: seat_public_data(db, seat, state=(assignments.get(seat.id), seat.id in pending)) for seat in seats}
 
 
-def serialize_rooms(db: Session, rooms: list[Room], *, draft: bool = False, summary_only: bool = False) -> list[dict[str, Any]]:
+def serialize_rooms(db: Session, rooms: list[Room], *, draft: bool = False, summary_only: bool = False,
+                    major_order: dict[str, int] | None = None) -> list[dict[str, Any]]:
     seats = room_seat_data(db, rooms)
-    return [serialize_room(db, room, draft=draft, seat_data=seats, summary_only=summary_only) for room in rooms]
+    if major_order is None and not summary_only and any(room.is_virtual for room in rooms):
+        major_order = {name: index for index, name in enumerate(db.scalars(
+            select(Major.name).order_by(Major.sort_order, Major.name)
+        ))}
+    return [serialize_room(db, room, draft=draft, seat_data=seats, summary_only=summary_only,
+                           major_order=major_order) for room in rooms]
 
 
-def serialize_room(db: Session, room: Room, *, draft: bool = False, seat_data: dict | None = None, summary_only: bool = False) -> dict[str, Any]:
+def virtual_layout(seats: dict[str, dict[str, Any]], order: dict[str, int]) -> list[dict[str, Any]]:
+    occupied = [(seat_id, seat) for seat_id, seat in seats.items() if seat["occupant"]]
+    occupied.sort(key=lambda entry: (
+        order.get(entry[1]["occupant"]["major"], len(order)),
+        entry[1]["occupant"]["major"] or "\uffff",
+        entry[1]["occupant"]["name"], entry[0],
+    ))
+    layout = []
+    current_group = None
+    group_index = 0
+    group_top = 0
+    for number, (seat_id, seat) in enumerate(occupied, start=1):
+        group = seat["occupant"]["major"] or "未设置教研组"
+        if group != current_group:
+            if current_group is not None:
+                group_top += 48 + ((group_index + 4) // 5) * 72 + 28
+            current_group, group_index = group, 0
+            layout.append(dict(id=f"virtual-group-{number}", type="label", label=group,
+                               x=48, y=group_top + 36, width=560, height=28, rotation=0))
+        layout.append(dict(id=seat_id, type="seat", label=f"{number:02d}",
+                           x=48 + group_index % 5 * 108,
+                           y=group_top + 76 + group_index // 5 * 72,
+                           width=92, height=52, rotation=0))
+        group_index += 1
+    return layout
+
+
+def serialize_room(db: Session, room: Room, *, draft: bool = False, seat_data: dict | None = None,
+                   summary_only: bool = False, major_order: dict[str, int] | None = None) -> dict[str, Any]:
     layout = [] if summary_only else (room.draft_layout if draft else room.published_layout)
     all_seats = seat_data if seat_data is not None else room_seat_data(db, [room])
     seats = {seat.id: all_seats[seat.id] for seat in room.seats if seat.id in all_seats}
     items: list[dict[str, Any]] = []
     if room.is_virtual and not summary_only:
-        layout = [dict(id=seat_id, type="seat", label=room.name, x=0, y=0,
-                       width=76, height=48, rotation=0)
-                  for seat_id, seat in seats.items() if seat["occupant"]]
+        if major_order is None:
+            major_order = {name: index for index, name in enumerate(db.scalars(
+                select(Major.name).order_by(Major.sort_order, Major.name)
+            ))}
+        layout = virtual_layout(seats, major_order)
     if room.is_virtual:
         seats = {key: value for key, value in seats.items() if value["occupant"]}
     for raw_item in layout or []:
@@ -366,7 +402,7 @@ def public_bootstrap(db: Db) -> dict[str, Any]:
         "years": allowed_years(),
         "program_levels": ["硕士", "博士"],
         "majors": [{"id": major.id, "name": major.name} for major in majors],
-        "rooms": serialize_rooms(db, rooms),
+        "rooms": serialize_rooms(db, rooms, major_order={major.name: index for index, major in enumerate(majors)}),
     }
 
 
@@ -681,6 +717,54 @@ def save_room_layout(room_id: int, payload: LayoutSave, db: Db, _: Admin) -> dic
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="座位编号重复") from exc
+    db.refresh(room)
+    return serialize_room(db, room, draft=True)
+
+
+@app.post("/api/admin/rooms/{room_id}/layout/discard")
+def discard_room_layout(room_id: int, db: Db, _: Admin) -> dict[str, Any]:
+    room = db.scalar(select(Room).options(joinedload(Room.seats)).where(Room.id == room_id))
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    if room.is_virtual:
+        raise HTTPException(status_code=422, detail="虚拟工位不使用平面图")
+
+    before = copy.deepcopy(room.draft_layout or [])
+    published = copy.deepcopy(room.published_layout or [])
+    published_codes = {str(item["id"]): item["label"] for item in published if item.get("type") == "seat"}
+    desired_codes = set(published_codes.values())
+    seats_by_id = {seat.id: seat for seat in room.seats}
+    if any(seat_id not in seats_by_id for seat_id in published_codes):
+        raise HTTPException(status_code=409, detail="已发布布局中的工位不存在，无法取消修改")
+
+    for seat in room.seats:
+        if seat.id not in published_codes and (active_assignment_for_seat(db, seat.id) or pending_application_for_seat(db, seat.id)):
+            raise HTTPException(status_code=409, detail=f"工位 {seat.code} 仍有占用或申请，不能取消布局修改")
+
+    # A saved draft may have renamed or added seats. Free conflicting codes before
+    # restoring the published ones; the room/code pair is unique even for archived seats.
+    used_codes = {seat.code for seat in room.seats} | desired_codes
+    for seat in room.seats:
+        if seat.id not in published_codes:
+            seat.is_archived = True
+        if (seat.id in published_codes and seat.code != published_codes[seat.id]) or (seat.id not in published_codes and seat.code in desired_codes):
+            temporary_code = f"~{uuid.uuid4()}"
+            while temporary_code in used_codes:
+                temporary_code = f"~{uuid.uuid4()}"
+            used_codes.add(temporary_code)
+            seat.code = temporary_code
+    try:
+        db.flush()
+        for seat_id, code in published_codes.items():
+            seat = seats_by_id[seat_id]
+            seat.code = code
+            seat.is_archived = False
+        room.draft_layout = published
+        audit(db, "layout.draft_discarded", "room", room.id, {"items": before}, {"items": published})
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="恢复已发布工位编号时发生冲突") from exc
     db.refresh(room)
     return serialize_room(db, room, draft=True)
 

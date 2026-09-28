@@ -85,7 +85,6 @@ function SeatCanvas({ room, items, editable = false, selectedId, selectedIds = [
     const top = Math.min(marquee.y, marquee.endY), bottom = Math.max(marquee.y, marquee.endY);
     if (right - left > 3 || bottom - top > 3) {
       const ids = renderItems.filter((item) => {
-        if (item.type === "wall") return false;
         const box = itemBounds(item);
         return box.left >= left && box.right <= right && box.top >= top && box.bottom <= bottom;
       }).map((item) => item.id);
@@ -132,13 +131,14 @@ function SeatCanvas({ room, items, editable = false, selectedId, selectedIds = [
             const selected = selectedSet.has(item.id);
             const seat = item.type === "seat";
             const palette = colors[item.seat?.display_state ?? "available"];
-            return <Group key={item.id} id={item.id} x={item.x} y={item.y} rotation={item.rotation} draggable={editable && item.type !== "wall"} listening={item.type !== "wall"}
+            return <Group key={item.id} id={item.id} x={item.x} y={item.y} rotation={item.rotation} draggable={editable} listening={editable || item.type !== "wall"}
               onClick={(event) => onSelect?.(item, event.evt.shiftKey)} onTap={() => onSelect?.(item)}
               onDragStart={(event) => beginDrag(event.target as Konva.Group, item)}
               onDragMove={(event) => moveDrag(event.target as Konva.Group, item)}
               onDragEnd={(event) => finishDrag(event.target as Konva.Group, item)}>
               <Rect width={item.width} height={item.height} fill={item.type === "wall" ? "#637181" : seat ? palette.fill : "#e4e9ef"}
                 stroke={selected ? "#00448d" : seat ? palette.stroke : "#8997a8"} strokeWidth={selected ? 2.5 / scale : 1}
+                hitStrokeWidth={item.type === "wall" ? 14 / scale : "auto"}
                 dash={item.type === "aisle" || item.type === "window" ? [6, 4] : undefined}
                 cornerRadius={item.type === "wall" ? 0 : 3} perfectDrawEnabled={false} shadowForStrokeEnabled={false} />
               {item.type !== "wall" && <Text width={item.width} height={item.height} padding={3} align="center" verticalAlign="middle"

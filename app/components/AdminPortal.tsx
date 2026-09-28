@@ -2,14 +2,14 @@
 
 import {
   Activity,
+  ChevronLeft,
+  ChevronRight,
   FileSpreadsheet,
   House,
   LayoutDashboard,
   LogOut,
   Map,
   Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
   Settings,
   Users,
   X,
@@ -85,9 +85,6 @@ export function AdminPortal() {
           <span className="nav-glass" aria-hidden="true" />
           <Brand href="/admin" />
           <button className="mobile-sidebar-toggle" aria-label="打开导航" onClick={() => setNavOpen(true)}><Menu /></button>
-          <button className="desktop-sidebar-toggle" aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} onClick={() => setSidebarCollapsed((value) => !value)}>
-            {sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-          </button>
           <div className="admin-breadcrumb"><span>管理工作台</span><i>/</i><strong>{currentSection?.label}</strong></div>
           <div className="admin-topbar-actions">
             <Link className="admin-home-link" href="/" aria-label="返回首页" title="返回首页"><House size={17} /></Link>
@@ -97,6 +94,9 @@ export function AdminPortal() {
         </header>
       </div>
       <aside className={`admin-sidebar glass-surface ${navOpen ? "open" : ""}`}>
+        <button className="sidebar-edge-toggle" aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((value) => !value)}>
+          {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+        </button>
         <div className="admin-brand"><span>工作空间</span><button className="sidebar-mobile-close" aria-label="关闭导航" onClick={() => setNavOpen(false)}><X /></button></div>
         <nav>
           {sections.map((item) => {

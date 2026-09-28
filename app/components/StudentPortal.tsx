@@ -14,7 +14,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
@@ -22,6 +22,7 @@ import type { Bootstrap, LayoutItem, Room, SeatState } from "@/app/lib/types";
 import { StudentProfile } from "./StudentProfile";
 import { DetailDialog } from "./DetailDialog";
 import { RoomPlan } from "./RoomPlan";
+import { VirtualRoomPlan } from "./VirtualRoomPlan";
 import { PublicHeader } from "./PublicHeader";
 import { MajorTags } from "./MajorTags";
 
@@ -97,7 +98,7 @@ function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorC
             >
               <span>{room.name}</span>
               {!room.is_virtual && <div className="room-tab-majors"><MajorTags names={room.major_names} compact /></div>}
-              <small className={room.seat_counts.available ? "has-vacancy" : ""}><i />{room.is_virtual ? `${room.items.length} 人` : room.seat_counts.available ? `${room.seat_counts.available} 空位` : "暂无空位"}</small>
+              <small className={room.seat_counts.available ? "has-vacancy" : ""}><i />{room.is_virtual ? `${room.items.filter((item) => item.type === "seat").length} 人` : room.seat_counts.available ? `${room.seat_counts.available} 空位` : "暂无空位"}</small>
             </button>
           ))}
         </div>
@@ -121,11 +122,6 @@ export function StudentPortal() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const profileCard = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (selectedItem?.seat?.occupant && view === "map" && window.matchMedia("(max-width: 1050px)").matches) profileCard.current?.scrollIntoView({ block: "nearest" });
-  }, [selectedItem, view]);
-
   const load = async () => {
     setLoading(true);
     setLoadError("");
@@ -244,8 +240,8 @@ export function StudentPortal() {
                   {query && <button aria-label="清空搜索" onClick={() => setQuery("")}><X size={14} /></button>}
                 </label>
                 <div className="segmented-control" aria-label="视图切换">
-                  <button disabled={selectedRoom.is_virtual} className={view === "map" && !selectedRoom.is_virtual ? "active" : ""} onClick={() => setView("map")}><LayoutGrid size={16} /> 平面图</button>
-                  <button className={view === "list" || selectedRoom.is_virtual ? "active" : ""} onClick={() => setView("list")}><List size={16} /> 列表</button>
+                  <button className={view === "map" ? "active" : ""} onClick={() => setView("map")}><LayoutGrid size={16} /> {selectedRoom.is_virtual ? "位置图" : "平面图"}</button>
+                  <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}><List size={16} /> 列表</button>
                 </div>
               </div>
 
@@ -255,18 +251,16 @@ export function StudentPortal() {
                 ))}
               </div>
 
-              {view === "map" && !selectedRoom.is_virtual ? (
-                <div className={`public-plan-layout ${selectedItem?.seat?.occupant ? "has-selection" : ""}`}>
-                  <RoomPlan key={selectedRoom.id} room={selectedRoom} query={query} onSelect={openSeat} selectedId={selectedItem?.id} />
-                  {selectedItem?.seat?.occupant && <aside ref={profileCard} className="public-student-card" aria-label="所选学生资料">
-                    <header><span>{selectedRoom.name} · 工位 {selectedItem.label}</span><button aria-label="收起学生资料" onClick={() => setSelectedItem(null)}><X size={16} /></button></header>
-                    <StudentProfile person={selectedItem.seat.occupant} compact />
-                  </aside>}
+              {view === "map" ? (
+                <div className="public-plan-layout">
+                  {selectedRoom.is_virtual
+                    ? <VirtualRoomPlan room={selectedRoom} majors={data.majors} query={query} onSelect={openSeat} selectedId={selectedItem?.id} />
+                    : <RoomPlan key={selectedRoom.id} room={selectedRoom} query={query} onSelect={openSeat} selectedId={selectedItem?.id} />}
                 </div>
               ) : (
                 <div className="seat-table-wrap">
                   <table className="data-table public-seat-table">
-                    <thead><tr><th>工位</th><th>状态</th><th>使用人</th><th>导师</th><th>教研中心</th><th /></tr></thead>
+                    <thead><tr><th>{selectedRoom.is_virtual ? "虚拟位置" : "工位"}</th><th>状态</th><th>使用人</th><th>导师</th><th>教研中心</th><th /></tr></thead>
                     <tbody>
                       {seats.map((item) => {
                         const expanded = expandedListItemId === item.id;
@@ -316,6 +310,13 @@ export function StudentPortal() {
             </section>
           )}
         </div>
+      )}
+
+      {view === "map" && selectedItem?.seat?.occupant && (
+        <DetailDialog label={`${selectedItem.seat.occupant.name}的资料`} onClose={() => setSelectedItem(null)}>
+          <StudentProfile person={selectedItem.seat.occupant}
+            location={`${selectedRoom?.name} · ${selectedRoom?.is_virtual ? "虚拟位置" : "工位"} ${selectedItem.label}`} />
+        </DetailDialog>
       )}
 
       {selectedItem?.seat && !selectedItem.seat.occupant && (
