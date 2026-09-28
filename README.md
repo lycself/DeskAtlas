@@ -4,11 +4,12 @@ DeskAtlas 是部署在内网的研究生工位可视化、申请与管理平台�
 
 ## 技术结构
 
-- Next.js 16 + TypeScript：学生端和管理员端
-- FastAPI + Python 3.11：业务 API
-- PostgreSQL：房间、工位、申请、分配历史、设置与审计
+- Next.js 16 + TypeScript：学生端、管理员端和桌面版状态面板
+- FastAPI + Python 3.11：业务 API；桌面版里同时托管静态前端
+- PostgreSQL（服务器部署）或 SQLite（桌面版）：房间、工位、申请、分配历史、设置与审计
 - React Konva：非 CAD 的拖放式工位图编辑器
 - pnpm：唯一 JavaScript 包管理器，`pnpm dev` 统一管理本地数据库与前后端
+- 桌面版：pystray 托盘 + pywebview 状态面板 + PyInstaller + Inno Setup，GitHub Actions 打 tag 即出安装包
 
 ## 本地运行
 
@@ -101,12 +102,69 @@ pnpm db:migrate
 
 ## 备份与恢复
 
+管理端“教研中心与设置 → 备份与账号”可以下载备份包、备份到本机目录、从备份包恢复，以及修改管理员密码。备份包是一个 zip，内含全部数据表的 SQLite 快照、上传文件、管理员账号和邮件配置加密密钥；无论当前运行在 PostgreSQL 还是 SQLite 上，同一个备份包都能恢复。恢复前会自动保留一份当前数据副本（SQLite 模式放在备份目录的 `pre-restore-*.db`）。
+
+首次运行且尚未创建管理员时，登录页会显示初始化向导：可以直接创建管理员，也可以上传另一台电脑导出的备份包，房间、工位、学生资料、账号和设置一次到位，无需重新配置。
+
+PostgreSQL 服务器部署仍可使用原生备份：
+
 ```bash
 docker compose exec -T db pg_dump -U deskatlas -d deskatlas -Fc > deskatlas.backup
 docker compose exec -T db pg_restore -U deskatlas -d deskatlas --clean --if-exists < deskatlas.backup
 ```
 
-恢复前应停止写入，并先在测试数据库验证备份文件。管理员密码通过运行 `pnpm admin:set` 并输入两次新密码设置，命令直接更新项目 `.env` 中的哈希，不保存明文。随后重启 `pnpm dev`（或 API 服务）生效。`pnpm admin:hash` 仅打印哈希，不修改配置。
+命令行方式修改管理员密码：运行 `pnpm admin:set` 并输入两次新密码，命令直接更新项目 `.env` 中的哈希，不保存明文，随后重启 `pnpm dev`（或 API 服务）生效。`pnpm admin:hash` 仅生成哈希，不修改配置。
+
+## 桌面版（Windows 托盘程序）
+
+桌面版把整个系统打包成一个 Windows 程序：安装后常驻任务栏托盘，FastAPI 在本机监听局域网端口，同时托管静态前端和 API；数据保存在 SQLite 文件里。适合没有常开服务器、由管理员自己的电脑对外提供服务的场景。
+
+### 安装与首次运行
+
+1. 从 GitHub Releases 下载 `DeskAtlas-Setup-<版本>.exe` 并运行。安装到当前用户目录，不需要管理员权限；安装过程中会弹出一次“用户帐户控制”，用于添加 Windows 防火墙规则，必须允许才能完成安装。安装向导里可勾选“登录 Windows 后自动启动”。
+2. 首次启动会打开状态面板窗口，并在托盘出现图标。面板显示学生访问地址和二维码；打开“管理端”后进入初始化向导，创建管理员或从备份包恢复。
+3. 关闭面板窗口只是隐藏，服务继续运行；托盘图标右键“退出 DeskAtlas”并确认后才会停止服务。
+
+### 状态面板与托盘菜单
+
+- 地址：列出本机所有局域网 IPv4 地址并标出推荐项，可填写“对外显示地址”（固定 IP 或域名）用于二维码。
+- 设置：服务端口（保存后自动重启监听）、开机自动启动、阻止电脑睡眠、每日自动备份及保留份数、更新源地址。开机自启与安装向导里的勾选操作同一个启动文件夹快捷方式。
+- 操作：打开学生端 / 管理端、立即备份、打开数据目录 / 备份目录 / 日志、检查更新、立即更新。
+- 托盘图标颜色：绿色运行中，黄色有新版本，红色服务异常。
+
+### 数据目录
+
+默认位于 `%LOCALAPPDATA%\DeskAtlas`（可用 `--data-dir` 或环境变量 `DESKATLAS_DATA_DIR` 覆盖），内含：
+
+- `deskatlas.db`：SQLite 数据库
+- `config.env`：管理员账号、会话密钥、邮件配置加密密钥
+- `settings.json`：端口、显示地址、睡眠、备份、更新源等托盘设置
+- `uploads/`、`backups/`、`logs/`、`updates/`
+
+换电脑时复制整个目录，或在管理端导出备份包后在新电脑的初始化向导里恢复。卸载程序会保留数据目录。
+
+### 在线更新
+
+程序启动后及每 6 小时读取更新源（默认 `https://github.com/lycself/DeskAtlas/releases/latest/download/latest.json`），校验 Ed25519 签名与安装包哈希后，在面板里提示“立即更新”。更新时下载安装包、静默安装并自动重启，新版本启动时先执行数据库迁移。校内网无法访问 GitHub 时，把 Release 里的 `latest.json` 和安装包放到校内可访问的静态目录，并在面板中修改更新源地址即可；此时清单必须是签名过的（见下文发布流程第 3 步），未签名的清单只在官方 GitHub 地址下被接受。
+
+### 发布流程
+
+1. 打 tag 并推送：`git tag v1.0.0 && git push origin v1.0.0`。不需要配置任何密钥。
+2. `.github/workflows/release.yml` 在 Windows runner 上执行：静态导出前端、运行后端测试、PyInstaller 打包、Inno Setup 生成安装包、生成 `latest.json`，并用 Actions 自带的 token 发布到 GitHub Release。手动触发（workflow_dispatch）只产出构建产物，不发布。
+3. 默认更新源是 GitHub Releases，走 HTTPS，客户端校验安装包 sha256，`latest.json` 不签名也会被接受。只有当更新源改为校内镜像时才需要签名：运行 `.venv/bin/python scripts/generate_update_keys.py`，公钥写入 `desktop/update_key.py`（仓库已包含当前公钥），私钥保存为 GitHub Actions 密钥 `DESKATLAS_UPDATE_PRIVATE_KEY`，之后的发布会自动签名，镜像里的清单才会被客户端接受。
+
+没有代码签名证书时，首次运行安装包 SmartScreen 会提示“Windows 已保护你的电脑”，点击“更多信息 → 仍要运行”。
+
+### 本机开发与调试
+
+```bash
+pnpm build:static        # 导出静态前端到 out/
+pnpm serve:static        # 用 FastAPI 托管 out/ 与 API，数据目录为 outputs/sqlite-data
+pnpm desktop:dev         # 运行托盘程序（macOS 也可运行，用于调试面板）
+pnpm migrate:sqlite      # 把 .env 指向的 PostgreSQL 数据迁移到 SQLite 数据目录并导出备份包
+```
+
+`pnpm migrate:sqlite` 默认写入本机默认数据目录，可用 `--data-dir` 指定；生成的备份包位于 `outputs/backups/`，直接在新电脑的初始化向导里上传即可。日常开发仍使用 `pnpm dev` 与 PostgreSQL，两种数据库共用同一套模型与迁移。桌面版依赖列在 `desktop/requirements.txt`。
 
 ## 验证
 

@@ -16,3 +16,10 @@ uploads/
 /最新安排/*.xlsx
 /outputs/
 /归档/
+/out/
+/build/
+/installer/dist/
+/installer/build/
+/installer/*.ico
+/desktop/assets/generated/
+backend/app/_build_version.py

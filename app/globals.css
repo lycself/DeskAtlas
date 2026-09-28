@@ -314,3 +314,11 @@ label small { color: var(--warning); font-size: 10px; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .001ms !important; transition-duration: .001ms !important; } }
 @media (prefers-reduced-transparency: reduce) { .glass-surface { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--glass-strong); } }
+
+.login-intro { margin: 14px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.6; }
+.login-tabs { margin: 18px 0 0; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); gap: 4px; }
+.login-tabs button { flex: 1; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+.login-tabs button[aria-pressed="true"] { background: var(--glass-strong); box-shadow: 0 1px 3px rgba(16, 34, 56, .08); color: var(--accent-soft); }
+.login-panel form input[type="file"] { padding: 9px 10px; }
+.login-panel .form-hint { margin: 0; font-size: 12px; }
+.login-version { margin: 22px 0 0; color: var(--ink-soft); font-size: 11px; text-align: center; letter-spacing: .04em; }

@@ -10,5 +10,5 @@ export default defineConfig([
       "react-hooks/set-state-in-effect": "off",
     },
   },
-  globalIgnores([".next/**", ".venv/**", "backend/**", "ticketly/**"]),
+  globalIgnores([".next/**", ".venv/**", "backend/**", "ticketly/**", "out/**", "dist/**", "build/**", "desktop/**", "installer/**", "outputs/**"]),
 ]);

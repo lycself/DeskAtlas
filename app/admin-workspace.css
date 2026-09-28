@@ -209,3 +209,23 @@ body:has(.admin-shell) { background: #f3f6fa; }
 .teacher-settings .student-tools > label { flex: 0 1 240px; }
 .teacher-settings .student-tools > input { flex: 1; min-width: 180px; max-width: 460px; }
 .teacher-settings .student-tools > span { white-space: nowrap; color: var(--ink-soft); font-size: 13px; }
+
+.backup-grid { grid-template-columns: 1.25fr .85fr; align-items: start; }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.backup-actions .primary-action, .backup-actions .secondary-action { min-height: 38px; }
+.backup-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 18px; margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--field); }
+.backup-facts div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.backup-facts dt { color: var(--ink-soft); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.backup-facts dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.backup-facts code { font-size: 11px; }
+.backup-side { display: flex; flex-direction: column; gap: 24px; }
+.restore-section form, .password-section form { display: flex; flex-direction: column; gap: 12px; padding: 14px 3px 0; }
+.restore-section label, .password-section label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink-soft); }
+.restore-section input, .password-section input { min-height: 38px; padding: 0 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--field); color: var(--ink); font-size: 13px; }
+.restore-section input[type="file"] { padding: 8px 10px; }
+.restore-section .danger-action, .password-section .primary-action { align-self: flex-start; }
+.restore-section .danger-action { color: #fff; background: var(--danger); border-color: var(--danger); }
+.row-actions { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.row-action.danger { color: var(--danger); display: inline-flex; align-items: center; gap: 4px; }
+.empty-cell { color: var(--ink-soft); text-align: center; }
+@media (max-width: 900px) { .backup-grid { grid-template-columns: 1fr; } }

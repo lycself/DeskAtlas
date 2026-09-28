@@ -10,6 +10,10 @@ depends_on = None
 
 
 def upgrade():
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("rooms")}
+    if "major_names" in columns:
+        # Databases created by create_all() already carry the column.
+        return
     op.add_column("rooms", sa.Column("major_names", sa.JSON().with_variant(postgresql.JSONB(), "postgresql"),
                                     nullable=False, server_default=sa.text("'[]'")))
 

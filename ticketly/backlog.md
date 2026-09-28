@@ -1,6 +1,6 @@
 # DeskAtlas backlog
 
-9 epics · 39 tickets · 156 points
+10 epics · 45 tickets · 182 points
 
 ## Your plan
 
@@ -62,6 +62,7 @@
 - EPIC-WEB — Web experience: large (10 tickets)
 - EPIC-QA — Testing and quality: large (4 tickets)
 - EPIC-REL — Release and operations: medium (2 tickets)
+- EPIC-DESK — Desktop packaging: large (6 tickets)
 
 ## EPIC-ARC — Architecture and core rules
 
@@ -440,3 +441,47 @@ Work tickets top to bottom; each ticket's dependencies come before it.
 37. WEB-010-Build operational overview
 38. QA-004-Verify responsive visual workflows
 39. REL-002-Produce verified production build
+
+## EPIC-DESK — Desktop packaging
+
+Ship DeskAtlas as a Windows tray application with SQLite storage, portable backups, and signed online updates, so the administrator's own PC can serve the department without a server.
+
+| ID | Title | Effort | Dependencies | Status |
+| --- | --- | --- | --- | --- |
+| DESK-001 | Run the backend on SQLite and migrate real data | 5 | DB-005 | Done |
+| DESK-002 | Serve the static frontend from FastAPI | 3 | DESK-001 | Done |
+| DESK-003 | Data directory, setup wizard, and backup packages | 5 | DESK-001, DESK-002 | Done |
+| DESK-004 | Tray application with status panel | 5 | DESK-003 | Done |
+| DESK-005 | Installer and release workflow | 5 | DESK-004 | Done |
+| DESK-006 | Signed online updates | 3 | DESK-005 | Done |
+
+**DESK-001 acceptance criteria**
+- every timestamp column is timezone-aware on both PostgreSQL and SQLite
+- alembic migrations run on a fresh SQLite file and on legacy create_all databases
+- scripts/migrate_to_sqlite.py copies every table with ids intact and exports a backup package
+
+**DESK-002 acceptance criteria**
+- DESKATLAS_STATIC=1 builds a static export with no server-only features
+- FastAPI maps /a to a.html or a/index.html, serves 404.html, and caches _next/static immutably
+- API and site share one origin so PUBLIC_ORIGIN and CORS are not needed in packaged mode
+
+**DESK-003 acceptance criteria**
+- packaged mode keeps db, config.env, uploads, backups, logs in one data directory
+- first run shows create-admin or restore-from-package before any login
+- admin UI exports, stores, downloads, deletes, and restores backup packages and changes the admin password
+- restore migrates older packages, keeps a pre-restore snapshot, and refuses invalid archives
+
+**DESK-004 acceptance criteria**
+- closing the panel window hides to the tray; tray exit asks for confirmation
+- panel shows live LAN addresses, QR code, and lets the admin change port, display address, autostart, sleep prevention, auto backup, update source
+- loopback-only panel API; second launch focuses the running instance
+
+**DESK-005 acceptance criteria**
+- PyInstaller onedir bundle includes the static site and migrations
+- Inno Setup installs per user, adds a program firewall rule with one UAC prompt, offers autostart, keeps data on uninstall
+- GitHub Actions builds and publishes the installer on v* tags
+
+**DESK-006 acceptance criteria**
+- release manifest is Ed25519-signed and verified against the embedded public key
+- installer download is verified by sha256 and size before silent install and relaunch
+- update source is configurable for intranet mirrors

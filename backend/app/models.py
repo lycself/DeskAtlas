@@ -18,6 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from .database import Base
 
@@ -29,9 +30,34 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class UtcDateTime(TypeDecorator):
+    """Timezone-aware UTC datetimes on every backend.
+
+    PostgreSQL stores timestamptz natively; SQLite drops the offset, so values are
+    normalised to UTC before writing and re-tagged as UTC when read back.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
 
 class Room(Base, TimestampMixin):
@@ -50,7 +76,7 @@ class Room(Base, TimestampMixin):
     published_layout: Mapped[list[dict[str, Any]]] = mapped_column(JsonType, default=list)
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     seats: Mapped[list[Seat]] = relationship(back_populates="room", cascade="all, delete-orphan")
 
@@ -133,8 +159,8 @@ class Assignment(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="RESTRICT"), index=True)
     seat_id: Mapped[str] = mapped_column(ForeignKey("seats.id", ondelete="RESTRICT"), index=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    started_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    ended_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True, index=True)
     source: Mapped[str] = mapped_column(String(24), default="admin")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -168,8 +194,8 @@ class Application(Base):
     original_data: Mapped[dict[str, Any]] = mapped_column(JsonType)
     reviewed_data: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     seat: Mapped[Seat] = relationship(back_populates="applications")
 
@@ -199,8 +225,8 @@ class EmailDelivery(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
-    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
 
 class AuditLog(Base):
@@ -212,4 +238,4 @@ class AuditLog(Base):
     target_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     before_data: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     after_data: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, index=True)

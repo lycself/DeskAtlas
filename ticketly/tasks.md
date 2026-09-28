@@ -261,3 +261,37 @@
   - backend automated tests pass
   - database migrations apply to a clean PostgreSQL instance
   - documented health, login, browse, apply, review, move, and email smoke checks pass
+
+## EPIC-DESK — Desktop packaging
+
+- [x] **DESK-001-Run the backend on SQLite and migrate real data**
+  - Effort 5 · Depends on: DB-005
+  - every timestamp column is timezone-aware on both PostgreSQL and SQLite
+  - alembic migrations run on a fresh SQLite file and on legacy create_all databases
+  - scripts/migrate_to_sqlite.py copies every table with ids intact and exports a backup package
+- [x] **DESK-002-Serve the static frontend from FastAPI**
+  - Effort 3 · Depends on: DESK-001
+  - DESKATLAS_STATIC=1 builds a static export with no server-only features
+  - FastAPI maps /a to a.html or a/index.html, serves 404.html, and caches _next/static immutably
+  - API and site share one origin so PUBLIC_ORIGIN and CORS are not needed in packaged mode
+- [x] **DESK-003-Data directory, setup wizard, and backup packages**
+  - Effort 5 · Depends on: DESK-001, DESK-002
+  - packaged mode keeps db, config.env, uploads, backups, logs in one data directory
+  - first run shows create-admin or restore-from-package before any login
+  - admin UI exports, stores, downloads, deletes, and restores backup packages and changes the admin password
+  - restore migrates older packages, keeps a pre-restore snapshot, and refuses invalid archives
+- [x] **DESK-004-Tray application with status panel**
+  - Effort 5 · Depends on: DESK-003
+  - closing the panel window hides to the tray; tray exit asks for confirmation
+  - panel shows live LAN addresses, QR code, and lets the admin change port, display address, autostart, sleep prevention, auto backup, update source
+  - loopback-only panel API; second launch focuses the running instance
+- [x] **DESK-005-Installer and release workflow**
+  - Effort 5 · Depends on: DESK-004
+  - PyInstaller onedir bundle includes the static site and migrations
+  - Inno Setup installs per user, adds a program firewall rule with one UAC prompt, offers autostart, keeps data on uninstall
+  - GitHub Actions builds and publishes the installer on v* tags
+- [x] **DESK-006-Signed online updates**
+  - Effort 3 · Depends on: DESK-005
+  - release manifest is Ed25519-signed and verified against the embedded public key
+  - installer download is verified by sha256 and size before silent install and relaunch
+  - update source is configurable for intranet mirrors

@@ -13,11 +13,14 @@ from sqlalchemy import func, select, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, defer
 
+from .auditing import audit
+from .backup import router as backup_router
 from .config import get_settings
-from .database import Base, SessionLocal, engine, get_db
+from .database import SessionLocal, engine, get_db
 from .importer import preview_workbook
 from .layout_utils import repair_imported_equipment
 from .mailer import create_delivery, deliver, encrypt_secret
+from .migrations import upgrade_database
 from .models import (
     Application,
     Assignment,
@@ -50,7 +53,11 @@ from .schemas import (
     TeacherData,
     allowed_years,
 )
-from .student_rules import ensure_virtual_rooms, place_unassigned, student_email, virtual_seat, VIRTUAL_ROOMS
+from .panel import router as panel_router
+from .seed import seed_reference_data
+from .setup import router as setup_router
+from .static_site import install_static_site
+from .student_rules import place_unassigned, student_email, virtual_seat, VIRTUAL_ROOMS
 from .security import (
     check_login_rate_limit,
     clear_login_attempts,
@@ -58,19 +65,12 @@ from .security import (
     require_admin,
     verify_password,
 )
+from .version import VERSION
 
 
 settings = get_settings()
 Db = Annotated[Session, Depends(get_db)]
 Admin = Annotated[str, Depends(require_admin)]
-INITIAL_MAJORS = [
-    "理论物理",
-    "凝聚态物理",
-    "光学",
-    "软物质物理",
-    "半导体物理",
-    "多信使天体物理",
-]
 
 
 def infer_floor(room_name: str) -> str | None:
@@ -81,29 +81,18 @@ def infer_floor(room_name: str) -> str | None:
     return f"{floor}层" if floor > 0 else None
 
 
-def seed_reference_data(db: Session) -> None:
-    for order, name in enumerate(INITIAL_MAJORS, start=1):
-        existing = db.scalar(select(Major).where(Major.name == name))
-        if not existing:
-            db.add(Major(name=name, sort_order=order, is_active=True))
-    ensure_virtual_rooms(db)
-    for student in db.scalars(select(Student).where(Student.is_archived.is_(False), ~Student.assignments.any(Assignment.ended_at.is_(None)))):
-        place_unassigned(db, student)
-    for student in db.scalars(select(Student)):
-        student.email = student_email(student.student_no)
-    db.commit()
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(engine)
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
+    upgrade_database(engine, settings.database_url)
     with SessionLocal() as db:
         seed_reference_data(db)
     yield
 
 
-app = FastAPI(title="DeskAtlas API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="DeskAtlas API", version=VERSION, lifespan=lifespan)
+app.state.panel = None
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.public_origin],
@@ -111,25 +100,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def audit(
-    db: Session,
-    action: str,
-    target_type: str,
-    target_id: str | int | None,
-    before: dict[str, Any] | None = None,
-    after: dict[str, Any] | None = None,
-) -> None:
-    db.add(
-        AuditLog(
-            action=action,
-            target_type=target_type,
-            target_id=str(target_id) if target_id is not None else None,
-            before_data=before,
-            after_data=after,
-        )
-    )
+app.include_router(setup_router)
+app.include_router(backup_router)
+app.include_router(panel_router)
 
 
 def active_assignment_for_seat(db: Session, seat_id: str) -> Assignment | None:
@@ -370,7 +343,7 @@ def admin_login(payload: AdminLogin, request: Request, response: Response) -> di
         "admin_session",
         create_session(payload.username),
         httponly=True,
-        secure=settings.production,
+        secure=settings.cookie_secure,
         samesite="strict",
         max_age=settings.session_max_age_seconds,
         path="/",
@@ -1300,3 +1273,7 @@ def import_commit(payload: ImportCommit, db: Db, _: Admin) -> dict[str, Any]:
         db.rollback()
         raise
     return dict(counts)
+
+
+if settings.static_dir is not None:
+    install_static_site(app, settings.static_dir)

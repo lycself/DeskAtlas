@@ -1,4 +1,5 @@
 import os
+import tempfile
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -15,4 +16,6 @@ os.environ["ADMIN_PASSWORD_HASH"] = PasswordHash.recommended().hash("test-passwo
 os.environ["SESSION_SECRET"] = "test-session-secret-with-sufficient-randomness"
 os.environ["SETTINGS_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 os.environ["APP_ENV"] = "development"
+os.environ["BACKUPS_DIR"] = str(Path(tempfile.mkdtemp(prefix="deskatlas-test-backups-")))
+os.environ["UPLOAD_DIR"] = str(Path(tempfile.mkdtemp(prefix="deskatlas-test-uploads-")))
 

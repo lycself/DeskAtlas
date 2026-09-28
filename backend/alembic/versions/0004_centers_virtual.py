@@ -9,8 +9,15 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("rooms", sa.Column("is_virtual", sa.Boolean(), nullable=False, server_default=sa.false()))
-    op.add_column("students", sa.Column("is_archived", sa.Boolean(), nullable=False, server_default=sa.false()))
+    inspector = sa.inspect(op.get_bind())
+    room_columns = {column["name"] for column in inspector.get_columns("rooms")}
+    student_columns = {column["name"] for column in inspector.get_columns("students")}
+    if "is_virtual" not in room_columns:
+        op.add_column("rooms", sa.Column("is_virtual", sa.Boolean(), nullable=False, server_default=sa.false()))
+    if "is_archived" not in student_columns:
+        op.add_column("students", sa.Column("is_archived", sa.Boolean(), nullable=False, server_default=sa.false()))
+    if "teachers" in inspector.get_table_names():
+        return
     op.create_table("teachers",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("name", sa.String(80), nullable=False),

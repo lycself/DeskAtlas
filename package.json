@@ -1,6 +1,6 @@
 {
   "name": "deskatlas",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@10.32.1",
   "scripts": {
@@ -18,7 +18,11 @@
     "db:down": "docker compose down",
     "db:migrate": ".venv/bin/python -m alembic -c backend/alembic.ini upgrade head",
     "admin:hash": ".venv/bin/python scripts/hash_admin_password.py",
-    "admin:set": ".venv/bin/python scripts/hash_admin_password.py --save"
+    "admin:set": ".venv/bin/python scripts/hash_admin_password.py --save",
+    "build:static": "DESKATLAS_STATIC=1 next build",
+    "serve:static": "DESKATLAS_DATA_DIR=outputs/sqlite-data .venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8080",
+    "desktop:dev": "DESKATLAS_DATA_DIR=outputs/sqlite-data .venv/bin/python -m desktop",
+    "migrate:sqlite": ".venv/bin/python scripts/migrate_to_sqlite.py"
   },
   "dependencies": {
     "konva": "10.3.2",

@@ -1,0 +1,5 @@
+pystray>=0.19,<1
+pywebview>=5,<7
+pillow>=10,<13
+packaging>=23
+pyinstaller>=6,<7
