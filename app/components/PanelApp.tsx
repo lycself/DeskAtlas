@@ -15,6 +15,7 @@ type PanelState = {
   version: string;
   addresses: Address[];
   running?: boolean;
+  platform?: string;
   server_error?: string | null;
   port?: number;
   display_url?: string;
@@ -135,6 +136,7 @@ export function PanelApp() {
             <small>二维码对应“对外显示地址”。留空则使用推荐地址。</small>
           </div>
         </div>}
+        {state?.platform === "win32" && <p className="panel-notice">学生打不开地址？DeskAtlas 第一次运行时，Windows 会询问是否允许它访问网络，请选择“允许访问”（专用和公用网络都勾选）。如果当时点了取消，可在“Windows 安全中心 → 防火墙和网络保护 → 允许应用通过防火墙”中勾选 DeskAtlas。</p>}
         <div className="panel-actions">
           <button disabled={!state?.available || !!busy} onClick={() => void open("public")}><Users size={15} />打开学生端</button>
           <button disabled={!state?.available || !!busy} onClick={() => void open("admin")}><ExternalLink size={15} />打开管理端</button>

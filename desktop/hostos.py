@@ -18,7 +18,6 @@ log = logging.getLogger(__name__)
 APP_NAME = "DeskAtlas"
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
-CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
 
 
 def executable_command() -> list[str]:
@@ -130,9 +129,40 @@ class KeepAwake:
 
 # --- autostart -------------------------------------------------------------
 
-def _startup_shortcut() -> Path:
+# Windows: a per-user Run value, the same one the installer's autostart task writes (installer\DeskAtlas.iss).
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+# Task Manager's "Startup apps" switch; an odd first byte means the user disabled the Run value there.
+STARTUP_APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+
+
+def _legacy_startup_shortcut() -> Path:
+    """Startup-folder shortcut used by DeskAtlas 1.0.0; still honoured, removed when autostart is changed."""
     appdata = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
     return appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / f"{APP_NAME}.lnk"
+
+
+def _run_value() -> str:
+    return f'"{sys.executable}"'
+
+
+def _read_value(key_path: str):
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+            return winreg.QueryValueEx(key, APP_NAME)[0]
+    except FileNotFoundError:
+        return None
+
+
+def _delete_value(key_path: str) -> None:
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.DeleteValue(key, APP_NAME)
+    except FileNotFoundError:
+        pass
 
 
 def _launch_agent() -> Path:
@@ -145,7 +175,12 @@ def autostart_supported() -> bool:
 
 def autostart_enabled() -> bool:
     if IS_WINDOWS:
-        return _startup_shortcut().exists()
+        if _legacy_startup_shortcut().exists():
+            return True
+        if _read_value(RUN_KEY) is None:
+            return False
+        approved = _read_value(STARTUP_APPROVED_KEY)
+        return not (isinstance(approved, bytes) and approved and approved[0] & 1)
     if IS_MAC:
         return _launch_agent().exists()
     return False
@@ -155,24 +190,19 @@ def set_autostart(enabled: bool) -> None:
     if not autostart_supported():
         raise ValueError("当前运行方式不支持开机自启")
     if IS_WINDOWS:
-        shortcut = _startup_shortcut()
+        import winreg
+
+        _legacy_startup_shortcut().unlink(missing_ok=True)
+        # Clearing Task Manager's switch makes a fresh value start enabled again.
+        _delete_value(STARTUP_APPROVED_KEY)
         if not enabled:
-            shortcut.unlink(missing_ok=True)
+            _delete_value(RUN_KEY)
             return
-        shortcut.parent.mkdir(parents=True, exist_ok=True)
-        target = sys.executable
-        script = (
-            "$shell = New-Object -ComObject WScript.Shell; "
-            f"$link = $shell.CreateShortcut('{shortcut}'); "
-            f"$link.TargetPath = '{target}'; "
-            f"$link.WorkingDirectory = '{Path(target).parent}'; "
-            f"$link.Description = '{APP_NAME}'; "
-            "$link.Save()"
-        )
-        completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                                   capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
-        if completed.returncode != 0 or not shortcut.exists():
-            raise ValueError(f"无法创建开机启动项：{completed.stderr.strip() or '未知错误'}")
+        try:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+                winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, _run_value())
+        except OSError as error:
+            raise ValueError(f"无法创建开机启动项：{error}") from error
         return
     plist = _launch_agent()
     if not enabled:

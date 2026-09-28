@@ -149,3 +149,90 @@ def test_controller_serves_and_restarts(tmp_path: Path, monkeypatch) -> None:
         controller.shutdown()
         app.state.panel = None
     assert not controller.server.running
+
+
+class FakeWinreg:
+    """Just enough of winreg for desktop.hostos: one hive of {key path: {value name: value}}."""
+
+    HKEY_CURRENT_USER = "HKCU"
+    KEY_SET_VALUE = 2
+    REG_SZ = 1
+
+    def __init__(self) -> None:
+        self.keys: dict[str, dict[str, object]] = {}
+
+    class _Key:
+        def __init__(self, values: dict[str, object]) -> None:
+            self.values = values
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc) -> None:
+            pass
+
+    def OpenKey(self, hive, path, reserved=0, access=0):
+        if path not in self.keys:
+            raise FileNotFoundError(path)
+        return self._Key(self.keys[path])
+
+    def CreateKey(self, hive, path):
+        return self._Key(self.keys.setdefault(path, {}))
+
+    def QueryValueEx(self, key, name):
+        if name not in key.values:
+            raise FileNotFoundError(name)
+        return key.values[name], self.REG_SZ
+
+    def SetValueEx(self, key, name, reserved, kind, value) -> None:
+        key.values[name] = value
+
+    def DeleteValue(self, key, name) -> None:
+        if name not in key.values:
+            raise FileNotFoundError(name)
+        del key.values[name]
+
+
+def test_windows_autostart_uses_run_value_and_migrates_legacy_shortcut(tmp_path: Path, monkeypatch) -> None:
+    import sys
+
+    from desktop import hostos
+
+    registry = FakeWinreg()
+    monkeypatch.setitem(sys.modules, "winreg", registry)
+    monkeypatch.setattr(hostos, "IS_WINDOWS", True)
+    monkeypatch.setattr(hostos, "IS_MAC", False)
+    monkeypatch.setattr(hostos, "is_frozen", lambda: True)
+    monkeypatch.setattr(hostos.sys, "executable", r"C:\Users\t\AppData\Local\Programs\DeskAtlas\DeskAtlas.exe")
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    legacy = tmp_path / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "DeskAtlas.lnk"
+
+    assert hostos.autostart_enabled() is False
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"lnk")
+    assert hostos.autostart_enabled() is True
+
+    hostos.set_autostart(True)
+    assert not legacy.exists()
+    assert registry.keys[hostos.RUN_KEY]["DeskAtlas"] == r'"C:\Users\t\AppData\Local\Programs\DeskAtlas\DeskAtlas.exe"'
+    assert hostos.autostart_enabled() is True
+
+    # Disabled from Task Manager: the Run value stays but no longer counts; enabling again clears the switch.
+    registry.keys[hostos.STARTUP_APPROVED_KEY] = {"DeskAtlas": bytes([3]) + bytes(11)}
+    assert hostos.autostart_enabled() is False
+    hostos.set_autostart(True)
+    assert "DeskAtlas" not in registry.keys[hostos.STARTUP_APPROVED_KEY]
+    assert hostos.autostart_enabled() is True
+
+    hostos.set_autostart(False)
+    assert "DeskAtlas" not in registry.keys[hostos.RUN_KEY]
+    assert hostos.autostart_enabled() is False
+    hostos.set_autostart(False)  # idempotent
+
+
+def test_installer_never_elevates_or_runs_hidden_shells() -> None:
+    script = (Path(__file__).resolve().parents[2] / "installer" / "DeskAtlas.iss").read_text(encoding="utf-8").lower()
+    for marker in ("runas", "netsh", "{cmd}", "powershell", "privilegesrequired=admin"):
+        assert marker not in script, marker
+    autostart = next(line for line in script.splitlines() if line.startswith('name: "autostart"'))
+    assert "flags: unchecked" in autostart and "check: isfirstinstall" in autostart
