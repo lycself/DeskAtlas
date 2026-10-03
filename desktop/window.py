@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 class PanelWindow:
     def __init__(self, controller: DesktopController) -> None:
         self.controller = controller
+        self._destroying = False
         self.window = webview.create_window(
             "DeskAtlas",
             controller.panel_url(),
@@ -28,6 +29,8 @@ class PanelWindow:
         controller.window = self
 
     def _on_closing(self) -> bool:
+        if self._destroying:
+            return True
         # Closing the window only hides it; the tray icon keeps the service alive.
         self.window.hide()
         return False
@@ -49,6 +52,8 @@ class PanelWindow:
         webview.start(on_start, private_mode=False)
 
     def destroy(self) -> None:
+        # destroy() also fires closing; an explicit quit must not be vetoed.
+        self._destroying = True
         try:
             self.window.destroy()
         except Exception:  # noqa: BLE001

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 import pystray
 from pystray import Menu, MenuItem
@@ -18,6 +19,7 @@ log = logging.getLogger(__name__)
 class Tray:
     def __init__(self, controller: DesktopController) -> None:
         self.controller = controller
+        self._quit_lock = threading.Lock()
         self.icon = pystray.Icon("DeskAtlas", tray_image("starting"), "DeskAtlas", menu=self._menu())
         controller.tray_status = self.set_status
 
@@ -86,8 +88,25 @@ class Tray:
         self.icon.update_menu()
 
     def _quit(self) -> None:
-        if hostos.confirm("退出 DeskAtlas", "退出后学生将无法访问工位地图，确定退出吗？"):
-            self.controller.request_quit()
+        # Windows invokes menu actions inside the tray's native window procedure.
+        # Return before opening a modal dialog or shutting down another GUI loop.
+        if not self._quit_lock.acquire(blocking=False):
+            return
+        try:
+            threading.Thread(target=self._confirm_quit, name="quit-confirm", daemon=True).start()
+        except Exception:
+            self._quit_lock.release()
+            raise
+
+    def _confirm_quit(self) -> None:
+        try:
+            if hostos.confirm("退出 DeskAtlas", "退出后学生将无法访问工位地图，确定退出吗？"):
+                self.controller.request_quit()
+        except Exception:  # noqa: BLE001 - keep the tray usable if a native dialog fails
+            log.exception("quit failed")
+            self.notify("退出失败，请查看日志后重试")
+        finally:
+            self._quit_lock.release()
 
     def run_detached(self) -> None:
         self.icon.run_detached()

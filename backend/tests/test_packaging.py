@@ -48,6 +48,9 @@ def test_backup_roundtrip_restores_rows_and_uploads(tmp_path: Path) -> None:
     with TestClient(app) as client:
         login(client)
         room, seats = create_published_room(client, "备份房间", ["B1", "B2"])
+        created = client.post("/api/admin/students", json={"name": "备份学生", "student_no": "BACKUP001", "seat_id": seats[0]})
+        assert created.status_code == 201, created.text
+        student = created.json()
         settings.upload_dir.mkdir(parents=True, exist_ok=True)
         marker = settings.upload_dir / "marker.txt"
         marker.write_text("keep me", encoding="utf-8")
@@ -64,6 +67,7 @@ def test_backup_roundtrip_restores_rows_and_uploads(tmp_path: Path) -> None:
         # Destroy state, then restore from the download.
         deleted = client.patch(f"/api/admin/rooms/{room['id']}", json={"name": "改名房间"})
         assert deleted.status_code == 200
+        assert client.patch(f"/api/admin/students/{student['id']}", json={"name": "改名学生"}).status_code == 200
         marker.unlink()
         restored = client.post("/api/admin/backup/restore", files={"file": ("backup.zip", response.content, "application/zip")})
         assert restored.status_code == 200, restored.text
@@ -72,6 +76,10 @@ def test_backup_roundtrip_restores_rows_and_uploads(tmp_path: Path) -> None:
         assert marker.read_text(encoding="utf-8") == "keep me"
 
         login(client)
+        restored_student = client.get(f"/api/admin/students/{student['id']}").json()
+        assert restored_student["name"] == "备份学生"
+        assert restored_student["student_no"] == "BACKUP001"
+        assert restored_student["current_assignment"]["seat_id"] == seats[0]
         rooms = client.get("/api/admin/rooms").json()
         assert any(item["name"] == "备份房间" for item in rooms)
         assert not any(item["name"] == "改名房间" for item in rooms)
