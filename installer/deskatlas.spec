@@ -64,6 +64,9 @@ a = Analysis(
     excludes=["tkinter", "matplotlib", "numpy", "pandas", "psycopg", "pytest"],
     noarchive=False,
 )
+if sys.platform.startswith("linux"):
+    # The deb declares GTK/WebKit dependencies; their shared libraries must match the host's typelibs.
+    a.exclude_system_libraries()
 pyz = PYZ(a.pure)
 
 exe = EXE(

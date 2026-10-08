@@ -38,7 +38,7 @@ def stage_package(bundle: Path, root: Path, version: str) -> None:
         f"Package: deskatlas\nVersion: {version}\nArchitecture: amd64\n"
         "Section: office\nPriority: optional\nMaintainer: DeskAtlas contributors\n"
         f"Installed-Size: {size}\n"
-        "Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libayatana-appindicator3-1, "
+        "Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libayatana-appindicator3-1, libgirepository-1.0-1, "
         "gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-ayatanaappindicator3-0.1, gir1.2-dbus-1.0, zenity, xdg-utils\n"
         "Homepage: https://github.com/lycself/DeskAtlas\n"
         "Description: DeskAtlas office seat management desktop application\n"

@@ -89,6 +89,7 @@ def test_deb_staging_has_launcher_icon_dependencies_and_static_site(tmp_path):
     assert "Exec=/usr/bin/deskatlas" in (root / "usr/share/applications/deskatlas.desktop").read_text()
     assert "libwebkit2gtk-4.1-0" in (root / "DEBIAN/control").read_text()
     assert "gir1.2-dbus-1.0" in (root / "DEBIAN/control").read_text()
+    assert "libgirepository-1.0-1" in (root / "DEBIAN/control").read_text()
     assert "gir1.2-webkit2-4.1" in (root / "DEBIAN/control").read_text()
     assert "gir1.2-ayatanaappindicator3-0.1" in (root / "DEBIAN/control").read_text()
     assert (root / "opt/deskatlas/_internal/static/index.html").is_file()
