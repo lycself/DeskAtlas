@@ -89,15 +89,15 @@ def export_excel(db: Db, _: Admin, scope: Literal["all", "students"] = "all",
         record = by_student.get(student.id)
         room = record.seat.room if record else None
         student_rows.append([
-            student.student_no, student.name, student.adviser, student.email,
-            student.enrollment_year, student.program_level, student.major.name if student.major else None,
+            student.student_no, student.name, student.enrollment_year, student.email,
+            student.program_level, student.adviser, student.major.name if student.major else None,
             room.name if room and room.is_virtual else "实际工位" if room else "未被分配",
             room.name if room else None,
             "虚拟工位" if room and room.is_virtual else record.seat.code if record else None,
             "完整" if student.is_complete else "待补全",
         ])
-    add_sheet(book, "学生名册", ["学号", "姓名", "导师", "邮箱", "年级", "培养层次", "教研中心", "工位分组", "房间", "座位号", "资料状态"],
-              student_rows, [24, 18, 18, 40, 12, 14, 24, 18, 18, 14, 14])
+    add_sheet(book, "学生名册", ["学号", "姓名", "年级", "电子邮箱", "培养层次", "导师姓名", "教研中心", "工位分组", "房间", "座位号", "资料状态"],
+              student_rows, [24, 18, 12, 40, 14, 18, 24, 18, 18, 14, 14])
     counts = {"students": len(student_rows)}
     if scope == "all":
         rooms = db.scalars(select(Room).options(selectinload(Room.seats), defer(Room.draft_layout), defer(Room.published_layout))
@@ -113,18 +113,20 @@ def export_excel(db: Db, _: Admin, scope: Literal["all", "students"] = "all",
                 state = display_state(seat, occupied=bool(record), pending=seat.id in pending)
                 states[state] += 1
                 seat_rows.append([
-                    room.name, seat.code, STATE_LABELS[state], student.student_no if student else None,
+                    len(seat_rows) + 1, room.name, seat.code,
                     student.name if student else None, student.adviser if student else None,
-                    student.enrollment_year if student else None, student.program_level if student else None,
+                    f"{student.enrollment_year}级" if student and student.enrollment_year else None,
+                    {"硕士": "硕", "博士": "博"}.get(student.program_level, student.program_level) if student else None,
                     student.major.name if student and student.major else None, seat.note,
+                    student.student_no if student else None, student.email if student else None, STATE_LABELS[state],
                 ])
             room_rows.append([
                 room.name, room.building, room.floor, "、".join(room.major_names or []),
                 "已发布" if room.is_published else "未发布", sum(states.values()),
                 states["occupied"], states["available"], states["pending"], states["unavailable"], room.description,
             ])
-        add_sheet(book, "工位分配", ["房间", "座位号", "工位状态", "学号", "姓名", "导师", "年级", "培养层次", "教研中心", "备注"],
-                  seat_rows, [18, 14, 16, 24, 18, 18, 12, 14, 24, 40])
+        add_sheet(book, "工位分配", ["序号", "房间", "座位号", "姓名", "导师", "年级（202X级）", "培养层次（硕/博）", "教研中心", "备注", "学号", "电子邮箱", "工位状态"],
+                  seat_rows, [10, 18, 14, 18, 18, 18, 20, 24, 40, 24, 40, 16])
         add_sheet(book, "房间汇总", ["房间", "楼宇", "楼层", "教研中心", "发布状态", "工位总数", "已占用", "可申请", "待审批", "不可申请", "说明"],
                   room_rows, [18, 20, 14, 32, 14, 14, 12, 12, 12, 14, 40])
         counts.update(seats=len(seat_rows), rooms=len(room_rows))

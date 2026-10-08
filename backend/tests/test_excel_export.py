@@ -85,13 +85,17 @@ def test_full_report_has_current_students_all_seat_states_and_room_totals(export
     assert book["学生名册"]["A2"].number_format == "@"
     assert book["学生名册"]["B2"].data_type == "s"  # formula-like user input stays literal
     assert book["学生名册"]["B2"].value.startswith("=HYPERLINK")
-    assert book["学生名册"]["C2"].value == "+导师"
-    assert book["学生名册"]["E2"].data_type == "n"
-    seats = {row[1]: row for row in list(book["工位分配"].values)[1:]}
+    assert book["学生名册"]["F2"].value == "+导师"
+    assert book["学生名册"]["C2"].data_type == "n"
+    assert next(book["学生名册"].values) == ("学号", "姓名", "年级", "电子邮箱", "培养层次", "导师姓名", "教研中心", "工位分组", "房间", "座位号", "资料状态")
+    assert next(book["工位分配"].values) == ("序号", "房间", "座位号", "姓名", "导师", "年级（202X级）", "培养层次（硕/博）", "教研中心", "备注", "学号", "电子邮箱", "工位状态")
+    seats = {row[2]: row for row in list(book["工位分配"].values)[1:]}
     assert set(seats) == {"001", "002", "003", "004"}
-    assert [seats[code][2] for code in sorted(seats)] == ["已占用", "待审批", "不可申请", "可申请"]
-    assert seats["001"][3] == "00001234567890123456"
-    assert seats["004"][4] is None  # an ended assignment must not look occupied
+    assert [seats[code][11] for code in sorted(seats)] == ["已占用", "待审批", "不可申请", "可申请"]
+    assert seats["001"][9] == "00001234567890123456"
+    assert seats["001"][5:7] == ("2026级", "硕")
+    assert [seats[code][0] for code in sorted(seats)] == [1, 2, 3, 4]
+    assert seats["004"][3] is None  # an ended assignment must not look occupied
     rooms = {row[0]: row for row in list(book["房间汇总"].values)[1:]}
     assert set(rooms) == {"导出房间", "未发布房间"}
     assert rooms["导出房间"][5:10] == (4, 1, 1, 1, 1)
@@ -158,6 +162,6 @@ def test_report_cleans_control_characters_and_expands_long_rows(export_client):
         db.commit()
     login(client)
     book = read_report(client.get("/api/admin/export/excel?scope=students"))
-    assert book.active["C2"].value == "导师名称"
+    assert book.active["F2"].value == "导师名称"
     assert book.active.row_dimensions[2].height > 30
     book.close()
