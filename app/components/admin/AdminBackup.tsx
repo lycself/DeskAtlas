@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, CircleAlert, Check, Download, HardDriveDownload, KeyRound, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Archive, CircleAlert, Check, Download, FileSpreadsheet, HardDriveDownload, KeyRound, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
@@ -92,12 +92,14 @@ export function AdminBackup({ active }: { active: boolean }) {
     {error && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}{message && <p className="success-banner"><Check size={16} />{message}</p>}
     <div className="settings-grid backup-grid">
       <section className="flat-section backup-section">
-        <header><div><h2>备份包</h2><p>一个 zip 包含全部数据、上传文件、管理员账号和邮件配置密钥。换电脑时在初始化页面上传即可完整恢复。</p></div><Archive /></header>
+        <header><div><h2>备份与导出</h2><p>一个 zip 包含全部数据、上传文件、管理员账号和邮件配置密钥。换电脑时在初始化页面上传即可完整恢复。</p></div><Archive /></header>
         <div className="backup-actions">
           <a className="primary-action compact" href="/api/admin/backup/export" download><Download size={15} />下载备份包</a>
+          <a className="secondary-action" href="/api/admin/export/excel" download><FileSpreadsheet size={15} />导出 Excel 报表</a>
           <button className="secondary-action" disabled={!!busy} onClick={createBackup}><HardDriveDownload size={15} />{busy === "create" ? "正在备份…" : "备份到本机目录"}</button>
           <button className="secondary-action" disabled={!!busy} onClick={() => void run("refresh", () => load())}><RefreshCw size={15} />刷新</button>
         </div>
+        <p>Excel 报表包含学生名册、实际工位分配和房间汇总，支持在 Excel 中筛选和打印。学生名册页也可按当前筛选条件导出。</p>
         {status && <dl className="backup-facts">
           <div><dt>版本</dt><dd>{status.version}{status.packaged ? "（桌面版）" : ""}</dd></div>
           <div><dt>数据库</dt><dd>{status.database === "sqlite" ? "SQLite 文件" : "PostgreSQL"}</dd></div>

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, joinedload, defer
 
 from .auditing import audit
 from .backup import router as backup_router
+from .excel_export import router as excel_export_router
 from .config import get_settings
 from .database import SessionLocal, engine, get_db
 from .importer import preview_workbook
@@ -57,7 +58,8 @@ from .panel import router as panel_router
 from .seed import seed_reference_data
 from .setup import router as setup_router
 from .static_site import install_static_site
-from .student_rules import place_unassigned, student_email, virtual_seat, VIRTUAL_ROOMS
+from .student_rules import directory_filters, place_unassigned, student_email, virtual_seat, VIRTUAL_ROOMS
+from .seat_rules import display_state as seat_display_state
 from .security import (
     check_login_rate_limit,
     clear_login_attempts,
@@ -102,6 +104,7 @@ app.add_middleware(
 )
 app.include_router(setup_router)
 app.include_router(backup_router)
+app.include_router(excel_export_router)
 app.include_router(panel_router)
 
 
@@ -138,14 +141,7 @@ def seat_public_data(db: Session, seat: Seat, *, state: tuple | None = None) -> 
     assignment, pending = state if state is not None else (
         active_assignment_for_seat(db, seat.id), pending_application_for_seat(db, seat.id)
     )
-    if seat.is_archived or seat.admin_status != "active":
-        display_state = "unavailable"
-    elif assignment:
-        display_state = "occupied"
-    elif pending:
-        display_state = "pending"
-    else:
-        display_state = "available"
+    display_state = seat_display_state(seat, occupied=bool(assignment), pending=bool(pending))
 
     occupant = None
     if assignment:
@@ -832,14 +828,7 @@ def list_students(db: Db, _: Admin, incomplete_only: bool = False) -> list[dict[
 def student_directory(db: Db, _: Admin, q: str = "", incomplete_only: bool = False,
                       placement: str = "",
                       offset: int = Query(default=0, ge=0), limit: int = Query(default=30, ge=1, le=100)) -> dict[str, Any]:
-    filters = [Student.is_archived.is_(False)]
-    if placement:
-        room_filter = Room.is_virtual.is_(False) if placement == "physical" else Room.name == placement
-        filters.append(Student.assignments.any((Assignment.ended_at.is_(None)) & Assignment.seat.has(Seat.room.has(room_filter))))
-    if incomplete_only:
-        filters.append(Student.is_complete.is_(False))
-    if q.strip():
-        filters.append(or_(*(column.icontains(q.strip(), autoescape=True) for column in (Student.name, Student.student_no, Student.adviser))))
+    filters = directory_filters(q, incomplete_only, placement)
     total = db.scalar(select(func.count()).select_from(Student).where(*filters))
     students = db.scalars(select(Student).options(joinedload(Student.major)).where(*filters)
                           .order_by(Student.name, Student.id).offset(offset).limit(limit)).all()

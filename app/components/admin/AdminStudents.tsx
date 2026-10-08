@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleAlert,
+  FileSpreadsheet,
   Pencil,
   Plus,
   RefreshCw,
@@ -96,6 +97,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
     setSelectedId(jump.studentId ?? null); setDetailTab("profile"); setDetail(null); setEditForm(null); setMoveSeat(""); setMessage("");
   }, [jump]);
   const filtered = students;
+  const exportParams = new URLSearchParams({ scope: "students", q: query, placement, incomplete_only: String(incompleteOnly) });
   const selected = detail?.id === selectedId ? detail : students.find((student) => student.id === selectedId);
 
   const value = (text: string) => text.trim() || null;
@@ -201,6 +203,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
       <header className="page-heading">
         <h1>学生名册</h1>
         <div className="heading-actions">
+          <a className="secondary-action" href={`/api/admin/export/excel?${exportParams}`} download title="导出当前筛选条件下的全部学生，包含所有分页"><FileSpreadsheet size={16} />导出 Excel</a>
           <button className="secondary-action" disabled={loading} onClick={load}><RefreshCw size={16} className={loading ? "spin" : ""} />刷新</button>
           <button disabled={busy} className="primary-action compact" onClick={() => { setError(""); setShowCreate(true); }}><Plus size={16} />直接录入</button>
         </div>

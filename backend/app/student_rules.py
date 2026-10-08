@@ -1,10 +1,24 @@
 """Shared identity and virtual placement rules for all write paths."""
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .models import Assignment, Room, Seat, Student
 
 VIRTUAL_ROOMS = ("翔安", "未被分配")
+
+
+def directory_filters(q: str = "", incomplete_only: bool = False, placement: str = "") -> list:
+    filters = [Student.is_archived.is_(False)]
+    if placement:
+        room_filter = Room.is_virtual.is_(False) if placement == "physical" else Room.name == placement
+        filters.append(Student.assignments.any(
+            (Assignment.ended_at.is_(None)) & Assignment.seat.has(Seat.room.has(room_filter))))
+    if incomplete_only:
+        filters.append(Student.is_complete.is_(False))
+    if q.strip():
+        filters.append(or_(*(column.icontains(q.strip(), autoescape=True)
+                             for column in (Student.name, Student.student_no, Student.adviser))))
+    return filters
 
 
 def student_email(student_no: str | None) -> str | None:
