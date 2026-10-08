@@ -1,4 +1,4 @@
-"""First-run initialisation, backup restore before login, and admin credential changes."""
+"""First-run initialisation, data import before creating a local admin, and password changes."""
 
 from __future__ import annotations
 

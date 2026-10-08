@@ -69,12 +69,12 @@ export function AdminBackup({ active }: { active: boolean }) {
   const restore = (event: FormEvent) => {
     event.preventDefault();
     if (!restoreFile) { setError("请选择备份包"); return; }
-    if (!window.confirm("恢复会用备份包里的数据完全替换当前的房间、工位、学生、设置和管理员账号。当前数据会先自动留一份副本。确定继续？")) return;
+    if (!window.confirm("恢复会用备份包里的数据完全替换当前的房间、工位、学生和邮件设置，本机管理员账号保持不变。当前数据会先自动留一份副本。确定继续？")) return;
     void run("restore", async () => {
       const body = new FormData();
       body.append("file", restoreFile);
       await api("/api/admin/backup/restore", { method: "POST", body });
-      window.alert("备份已恢复。请使用备份中的管理员账号重新登录。");
+      window.alert("数据已恢复。请使用本机现有的管理员账号重新登录。");
       router.replace("/admin/login");
     });
   };
@@ -92,7 +92,7 @@ export function AdminBackup({ active }: { active: boolean }) {
     {error && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}{message && <p className="success-banner"><Check size={16} />{message}</p>}
     <div className="settings-grid backup-grid">
       <section className="flat-section backup-section">
-        <header><div><h2>备份与导出</h2><p>一个 zip 包含全部数据、上传文件、管理员账号和邮件配置密钥。换电脑时在初始化页面上传即可完整恢复。</p></div><Archive /></header>
+        <header><div><h2>备份与导出</h2><p>备份包包含全部数据、上传文件和邮件配置密钥。换电脑导入后设置本机管理员账号。</p></div><Archive /></header>
         <div className="backup-actions">
           <a className="primary-action compact" href="/api/admin/backup/export" download><Download size={15} />下载备份包</a>
           <a className="secondary-action" href="/api/admin/export/excel" download><FileSpreadsheet size={15} />导出 Excel 报表</a>

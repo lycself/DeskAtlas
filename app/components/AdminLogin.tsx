@@ -20,6 +20,7 @@ export function AdminLogin() {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [restored, setRestored] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -63,17 +64,20 @@ export function AdminLogin() {
     void run(async () => {
       const body = new FormData();
       body.append("file", file);
-      await api("/api/setup/restore", { method: "POST", body });
-      setStatus((current) => current ? { ...current, configured: true } : current);
-      setMode("login");
+      const result = await api<SetupStatus>("/api/setup/restore", { method: "POST", body });
+      setStatus(result);
+      setRestored(true);
+      setMode("create");
+      setUsername("");
       setPassword("");
-      setMessage("备份已恢复。请使用备份中的管理员账号登录。");
+      setConfirmation("");
+      setMessage("数据已导入，请设置本机的管理员用户名和密码。");
     });
   };
 
   const setupIntro = (
     <p className="login-intro">
-      这是首次运行。请创建管理员账号，或者上传另一台电脑导出的备份包，让房间、工位、学生资料和设置一次到位。
+      这是首次运行。请设置本机管理员账号；也可以先导入备份包，恢复房间、工位、学生资料和设置，再创建本机账号。
     </p>
   );
 
@@ -101,12 +105,13 @@ export function AdminLogin() {
         </>}
         {mode === "create" && <>
           <span className="login-symbol"><ShieldPlus /></span>
-          <h1>初始化 DeskAtlas</h1>
-          {setupIntro}
-          <div className="section-tabs login-tabs" role="group" aria-label="初始化方式">
-            <button aria-pressed onClick={() => setMode("create")}>创建管理员</button>
-            <button aria-pressed={false} onClick={() => { setMode("restore"); setError(""); }}>从备份包恢复</button>
-          </div>
+          <h1>{restored ? "设置本机管理员" : "初始化 DeskAtlas"}</h1>
+          {!restored && setupIntro}
+          {message && <p className="success-banner">{message}</p>}
+          {!restored && <div className="section-tabs login-tabs" role="group" aria-label="初始化方式">
+            <button aria-pressed disabled={loading} onClick={() => setMode("create")}>创建管理员</button>
+            <button aria-pressed={false} disabled={loading} onClick={() => { setMode("restore"); setError(""); }}>从备份包恢复</button>
+          </div>}
           <form onSubmit={submitCreate}>
             <label><span>管理员用户名</span><input autoComplete="username" required minLength={3} maxLength={40} pattern="[A-Za-z0-9_.@-]+" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
             <label><span>密码（至少 12 个字符）</span><input type="password" autoComplete="new-password" required minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
@@ -120,14 +125,14 @@ export function AdminLogin() {
           <h1>从备份包恢复</h1>
           {setupIntro}
           <div className="section-tabs login-tabs" role="group" aria-label="初始化方式">
-            <button aria-pressed={false} onClick={() => { setMode("create"); setError(""); }}>创建管理员</button>
-            <button aria-pressed onClick={() => setMode("restore")}>从备份包恢复</button>
+            <button aria-pressed={false} disabled={loading} onClick={() => { setMode("create"); setError(""); }}>创建管理员</button>
+            <button aria-pressed disabled={loading} onClick={() => setMode("restore")}>从备份包恢复</button>
           </div>
           <form onSubmit={submitRestore}>
             <label><span>备份包（.zip）</span><input type="file" accept=".zip,application/zip" required onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
-            <p className="form-hint">备份包包含管理员账号、房间与学生数据、上传文件和邮件配置密钥。恢复后请用原来的管理员账号登录。</p>
+            <p className="form-hint">导入房间与学生数据、上传文件和邮件设置。导入后需创建本机管理员账号。</p>
             {error && <p className="form-error"><CircleAlert size={16} />{error}</p>}
-            <button className="primary-action" disabled={loading || !file}>{loading ? "正在恢复…" : "恢复并继续"}<ArrowRight size={17} /></button>
+            <button className="primary-action" disabled={loading || !file}>{loading ? "正在恢复…" : "导入并设置本机账号"}<ArrowRight size={17} /></button>
           </form>
         </>}
         {status && <p className="login-version">DeskAtlas {status.version}{status.packaged ? " · 桌面版" : ""}</p>}

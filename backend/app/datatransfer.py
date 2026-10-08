@@ -3,7 +3,7 @@
 A backup package is a zip with:
     manifest.json   format, app version, schema revision, creation time
     deskatlas.db    SQLite snapshot of every table
-    config.env      admin credentials and the settings encryption key
+    config.env      the settings encryption key (no admin credentials)
     uploads/...     files uploaded through the admin UI
 The same package restores into SQLite (packaged installs) or PostgreSQL (server deployments).
 """
@@ -39,7 +39,7 @@ DB_NAME = "deskatlas.db"
 MANIFEST_NAME = "manifest.json"
 CONFIG_NAME = "config.env"
 UPLOADS_PREFIX = "uploads/"
-BACKUP_CONFIG_KEYS = ("ADMIN_USERNAME", "ADMIN_PASSWORD_HASH", "SETTINGS_ENCRYPTION_KEY")
+BACKUP_CONFIG_KEYS = ("SETTINGS_ENCRYPTION_KEY",)
 transfer_lock = threading.Lock()
 
 
@@ -101,11 +101,7 @@ def snapshot_database(engine: Engine, settings: Settings, target_path: Path) -> 
 
 
 def config_snapshot(settings: Settings) -> str:
-    values = {
-        "ADMIN_USERNAME": settings.admin_username,
-        "ADMIN_PASSWORD_HASH": settings.admin_password_hash,
-        "SETTINGS_ENCRYPTION_KEY": settings.settings_encryption_key,
-    }
+    values = {key: getattr(settings, key.lower()) for key in BACKUP_CONFIG_KEYS}
     return "".join(f"{key}='{value}'\n" for key, value in values.items() if value)
 
 
@@ -175,7 +171,7 @@ def _safe_child(base: Path, relative: str) -> Path | None:
 
 
 def restore_backup(package_path: Path, engine: Engine, settings: Settings) -> dict:
-    """Replace the live database, uploads, and credentials with the package contents."""
+    """Restore data and its encryption key while keeping this device's admin credentials."""
     with transfer_lock:
         try:
             package = ZipFile(package_path)
@@ -209,6 +205,7 @@ def restore_backup(package_path: Path, engine: Engine, settings: Settings) -> di
             config_values = {}
             if CONFIG_NAME in package.namelist():
                 parsed = dotenv_values(stream=io.StringIO(package.read(CONFIG_NAME).decode("utf-8")))
+                # Older packages contain admin credentials; they must stay local to each device.
                 config_values = {key: value for key, value in parsed.items() if key in BACKUP_CONFIG_KEYS and value}
             if config_values:
                 settings.write_config(config_values)

@@ -85,5 +85,5 @@ async def restore_package(_: Admin, file: UploadFile = File(...)) -> dict[str, A
     with Session(engine) as db:
         audit(db, "backup.restored", "backup", file.filename, after={"tables": result["tables"]})
         db.commit()
-    # Credentials may have changed with the package, so the browser must sign in again.
+    # Return to login after replacing the workspace, using this device's existing account.
     return {**result, "relogin": True}
