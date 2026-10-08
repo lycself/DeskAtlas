@@ -76,9 +76,10 @@ jobs:
 
       - name: Install Ubuntu desktop libraries
         if: matrix.platform == 'ubuntu'
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libcairo2-dev libgirepository1.0-dev \
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y libcairo2-dev libgirepository1.0-dev \
             gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-ayatanaappindicator3-0.1 \
             libayatana-appindicator3-dev gir1.2-dbus-1.0 zenity xdg-utils xvfb xdotool dbus-x11 fonts-noto-cjk desktop-file-utils
 
@@ -140,7 +141,7 @@ jobs:
         if: matrix.platform == 'ubuntu'
         run: |
           python installer/build_deb.py --version '${{ steps.version.outputs.value }}'
-          sudo apt-get install -y ./dist/DeskAtlas-${{ steps.version.outputs.value }}-Ubuntu-amd64.deb
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y ./dist/DeskAtlas-${{ steps.version.outputs.value }}-Ubuntu-amd64.deb
           desktop-file-validate /usr/share/applications/deskatlas.desktop
 
       - name: Smoke test installed Ubuntu desktop
@@ -205,9 +206,10 @@ jobs:
           merge-multiple: true
           path: dist
       - name: Install the Ubuntu 22.04 package on Ubuntu 24.04
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ./dist/DeskAtlas-*-Ubuntu-amd64.deb xvfb xdotool dbus-x11 fonts-noto-cjk desktop-file-utils
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y ./dist/DeskAtlas-*-Ubuntu-amd64.deb xvfb xdotool dbus-x11 fonts-noto-cjk desktop-file-utils
           python -m pip install pillow
           desktop-file-validate /usr/share/applications/deskatlas.desktop
       - name: Smoke test Ubuntu 24.04 desktop
