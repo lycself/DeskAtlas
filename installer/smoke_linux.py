@@ -60,6 +60,8 @@ def main() -> int:
                 assert b"DeskAtlas" in request("/panel")
                 window = None
                 while time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        raise RuntimeError("Desktop exited before its GTK window appeared")
                     found = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "^DeskAtlas$"], capture_output=True, text=True)
                     if found.returncode == 0 and found.stdout.strip():
                         window = found.stdout.splitlines()[0]
