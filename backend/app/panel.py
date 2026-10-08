@@ -38,6 +38,7 @@ class PanelSettings(BaseModel):
     auto_backup: bool | None = None
     backup_keep: int | None = Field(default=None, ge=1, le=365)
     update_url: str | None = Field(default=None, max_length=500)
+    update_token: str | None = Field(default=None, max_length=500, repr=False)
 
 
 def lan_addresses() -> list[dict[str, Any]]:

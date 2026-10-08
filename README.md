@@ -144,11 +144,25 @@ docker compose exec -T db pg_restore -U deskatlas -d deskatlas --clean --if-exis
 
 换电脑时复制整个目录，或在管理端导出备份包后在新电脑的初始化向导里恢复。卸载程序会保留数据目录。
 
+使用备份包迁移的具体步骤：
+
+1. 在原电脑管理端“系统设置 → 备份与账号”点击“下载备份包”，或在桌面状态面板点击“立即备份 → 打开备份目录”，把生成的 `.zip` 复制到新电脑，无需解压。
+2. 新电脑安装相同或更新版本的 DeskAtlas，打开“管理端”。尚未初始化时选择“从备份包恢复”；已经创建管理员时，登录后在“系统设置 → 备份与账号 → 从备份包恢复”上传该 `.zip`。
+3. 恢复后使用原电脑的管理员账号和密码登录，检查房间、工位和学生数据。新电脑的服务端口、开机启动、显示地址和更新 token 属于本机设置，需要单独配置；学生访问地址使用新电脑状态面板显示的地址。
+
+直接复制整个数据目录时，应先在两台电脑的托盘菜单中退出 DeskAtlas，再复制 `%LOCALAPPDATA%\DeskAtlas`，然后启动新电脑上的程序。
+
 安装包和在线更新只包含程序，不包含开发电脑或其他电脑上的学生数据，也不会自动同步数据库。Windows 上首次创建管理员后看到空数据，需要登录管理端，在“系统设置 → 备份与账号”中上传原电脑导出的 `.zip` 备份包并恢复；尚未初始化时，可直接在初始化向导中选择“从备份包恢复”。恢复会替换当前数据，并自动保留恢复前的副本。恢复完成后使用原电脑的管理员账号和密码登录。
 
 ### 在线更新
 
 程序启动后及每 6 小时读取更新源（默认 `https://github.com/lycself/DeskAtlas/releases/latest/download/latest.json`），校验 Ed25519 签名与安装包哈希后，在面板里提示“立即更新”。更新时下载安装包、静默安装并自动重启，新版本启动时先执行数据库迁移。校内网无法访问 GitHub 时，把 Release 里的 `latest.json` 和安装包放到校内可访问的静态目录，并在面板中修改更新源地址即可；此时清单必须是签名过的（见下文发布流程第 3 步），未签名的清单只在官方 GitHub 地址下被接受。
+
+私有仓库更新：在 GitHub 的 Settings → Developer settings → Personal access tokens → Fine-grained tokens 中创建 token，Repository access 仅选择 `lycself/DeskAtlas`，Repository permissions 中将 **Contents** 设为 **Read-only**。在桌面状态面板“运行设置 → GitHub 更新 token”填写并保存，更新源保持默认地址，再点击“检查更新”。客户端会通过 GitHub Release API 认证获取 `latest.json` 和安装包，继续验证清单及 sha256。此方式仍需要网络能够访问 GitHub API 和附件下载域名。
+
+token 使用本机独立密钥加密，密文保存在 `settings.json`，密钥位于数据目录的 `update-token.key`；面板接口只返回是否已配置，不回传 token。认证信息只发送给官方仓库的 GitHub API，请求重定向到下载域名时不会携带 token。备份 `.zip` 不包含 token 或其本机密钥，恢复到新电脑后重新填写；复制整个数据目录会连同密钥一起复制。token 到期或撤销后需重新配置，输入框留空保留原 token，勾选“清除已保存的 token”并保存则移除认证。
+
+此前没有 token 配置入口的安装版需要先手动安装一次包含此功能的新版本，之后即可使用私有仓库在线更新。
 
 ### 发布流程
 

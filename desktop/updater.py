@@ -10,7 +10,8 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, unquote, urlsplit
 from urllib.request import Request, urlopen
 
 from cryptography.exceptions import InvalidSignature
@@ -19,7 +20,7 @@ from packaging.version import InvalidVersion, Version
 
 from backend.app.version import VERSION
 from .hostos import IS_WINDOWS, run_installer
-from .settings import OFFICIAL_RELEASES
+from .settings import OFFICIAL_RELEASES, OFFICIAL_REPOSITORY
 from .update_key import PUBLIC_KEY
 
 
@@ -70,13 +71,56 @@ def parse_version(text: str) -> Version:
 
 
 class Updater:
-    def __init__(self, data_dir: Path, url_getter: Callable[[], str], on_installing: Callable[[], None]) -> None:
+    def __init__(self, data_dir: Path, url_getter: Callable[[], str], on_installing: Callable[[], None],
+                 *, token_getter: Callable[[], str] | None = None) -> None:
         self.downloads = data_dir / "updates"
         self.url_getter = url_getter
         self.on_installing = on_installing
+        self.token_getter = token_getter or (lambda: "")
         self.info: dict = {"status": "idle", "latest": None, "notes": None, "error": None, "checked_at": None}
         self._manifest: dict | None = None
         self._lock = threading.Lock()
+
+    def _github_request(self, url: str, token: str, *, binary: bool = False, timeout: int = 15):
+        request = Request(url, headers={
+            "User-Agent": USER_AGENT,
+            "Cache-Control": "no-cache",
+            "Accept": "application/octet-stream" if binary else "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        })
+        # urllib does not forward unredirected headers to GitHub's asset CDN (or any other host).
+        request.add_unredirected_header("Authorization", f"Bearer {token}")
+        try:
+            return urlopen(request, timeout=timeout)
+        except HTTPError as exc:
+            messages = {
+                401: "GitHub token 无效或已过期，请重新配置",
+                403: "GitHub 拒绝访问，请检查 token 的 Contents 读取权限、组织授权或 API 频率限制",
+                404: "找不到 GitHub Release 或附件，请检查 token 的仓库访问权限和已发布的更新文件",
+            }
+            raise UpdateError(messages.get(exc.code, f"GitHub 更新请求失败（HTTP {exc.code}）")) from exc
+
+    def _open_url(self, url: str, *, timeout: int):
+        # A mirror or another repository must never receive the official repository's credential.
+        token = self.token_getter().strip() if is_official_source(url) else ""
+        if not token:
+            return urlopen(Request(url, headers={"User-Agent": USER_AGENT, "Cache-Control": "no-cache"}), timeout=timeout)
+        path = urlsplit(url).path.removeprefix(f"/{OFFICIAL_REPOSITORY}/releases/")
+        pieces = path.split("/")
+        api_base = f"https://api.github.com/repos/{OFFICIAL_REPOSITORY}/releases"
+        if len(pieces) == 3 and pieces[:2] == ["latest", "download"]:
+            release_url = f"{api_base}/latest"
+        elif len(pieces) == 3 and pieces[0] == "download":
+            release_url = f"{api_base}/tags/{quote(unquote(pieces[1]), safe='')}"
+        else:
+            raise UpdateError("GitHub 更新源必须是 Release 附件下载地址")
+        name = unquote(pieces[2])
+        with self._github_request(release_url, token) as response:
+            release = json.loads(response.read().decode("utf-8"))
+        for asset in release.get("assets", []):
+            if asset.get("name") == name and isinstance(asset.get("id"), int):
+                return self._github_request(f"{api_base}/assets/{asset['id']}", token, binary=True, timeout=timeout)
+        raise UpdateError(f"GitHub Release 中缺少更新附件：{name}")
 
     def _set(self, **fields) -> dict:
         self.info.update(fields)
@@ -90,8 +134,7 @@ class Updater:
             return dict(self.info)
         try:
             self._set(status="checking", error=None)
-            request = Request(url, headers={"User-Agent": USER_AGENT, "Cache-Control": "no-cache"})
-            with urlopen(request, timeout=15) as response:
+            with self._open_url(url, timeout=15) as response:
                 manifest = json.loads(response.read().decode("utf-8"))
             verify_manifest(manifest, url)
             latest = parse_version(manifest["version"])
@@ -142,9 +185,8 @@ class Updater:
         if target.exists() and _sha256(target) == expected_hash:
             return target
         digest = hashlib.sha256()
-        request = Request(url, headers={"User-Agent": USER_AGENT})
         partial = target.with_suffix(".part")
-        with urlopen(request, timeout=60) as response, partial.open("wb") as handle:
+        with self._open_url(url, timeout=60) as response, partial.open("wb") as handle:
             while chunk := response.read(1024 * 256):
                 digest.update(chunk)
                 handle.write(chunk)

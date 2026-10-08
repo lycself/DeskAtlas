@@ -9,7 +9,7 @@ import { ThemeToggle } from "./ThemeToggle";
 
 type Address = { address: string; primary: boolean };
 type UpdateInfo = { status: string; latest?: string | null; notes?: string | null; error?: string | null; checked_at?: string | null };
-type PanelSettings = { port: number; public_address: string; autostart: boolean; prevent_sleep: boolean; auto_backup: boolean; backup_keep: number; update_url: string };
+type PanelSettings = { port: number; public_address: string; autostart: boolean; prevent_sleep: boolean; auto_backup: boolean; backup_keep: number; update_url: string; update_token_configured: boolean };
 type PanelState = {
   available: boolean;
   version: string;
@@ -44,6 +44,8 @@ export function PanelApp() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
+  const [updateToken, setUpdateToken] = useState("");
+  const [clearUpdateToken, setClearUpdateToken] = useState(false);
   const busyRef = useRef(false);
   const formTouched = useRef(false);
 
@@ -71,9 +73,10 @@ export function PanelApp() {
     finally { busyRef.current = false; setBusy(""); }
   };
 
-  const saveSettings = (changes: Partial<PanelSettings>, label = "save") => run(label, async () => {
+  const saveSettings = (changes: Partial<PanelSettings> & { update_token?: string }, label = "save") => run(label, async () => {
     const result = await api<{ restarting?: boolean; url?: string; message?: string }>("/api/panel/settings", { method: "PUT", body: JSON.stringify(changes) });
     formTouched.current = false;
+    if (changes.update_token !== undefined) { setUpdateToken(""); setClearUpdateToken(false); }
     if (result.restarting && result.url) {
       setMessage(`端口已修改，正在用新地址重新打开面板…`);
       window.setTimeout(() => window.location.replace(`${result.url}/panel`), 1800);
@@ -85,7 +88,9 @@ export function PanelApp() {
   const submitForm = (event: FormEvent) => {
     event.preventDefault();
     if (!form) return;
-    void saveSettings({ port: form.port, public_address: form.public_address.trim(), backup_keep: form.backup_keep, update_url: form.update_url.trim() });
+    void saveSettings({ port: form.port, public_address: form.public_address.trim(), backup_keep: form.backup_keep, update_url: form.update_url.trim(),
+      ...(clearUpdateToken ? { update_token: "" } : updateToken.trim() ? { update_token: updateToken.trim() } : {}),
+    });
   };
 
   const toggle = (key: "autostart" | "prevent_sleep" | "auto_backup", value: boolean) => {
@@ -177,6 +182,9 @@ export function PanelApp() {
             </div>
             <label className="panel-field"><span>对外显示地址（可选，例如固定 IP 或域名）</span><input placeholder="留空使用推荐地址" value={form.public_address} onChange={(event) => setForm({ ...form, public_address: event.target.value })} /></label>
             <label className="panel-field"><span>更新源地址</span><input placeholder="https://…/latest.json" value={form.update_url} onChange={(event) => setForm({ ...form, update_url: event.target.value })} /></label>
+            <label className="panel-field"><span>GitHub 更新 token（私有仓库）</span><input type="password" autoComplete="off" maxLength={500} disabled={!!busy || clearUpdateToken} placeholder={form.update_token_configured ? "已配置，留空保留现有 token" : "填写具有仓库 Contents 读取权限的 token"} value={updateToken} onChange={(event) => setUpdateToken(event.target.value)} /></label>
+            <p className="panel-notice">仅用于官方 GitHub 仓库更新，token 加密保存在本机。选择 DeskAtlas 仓库并授予 Contents 读取权限，保存后点击“检查更新”。</p>
+            {form.update_token_configured && <label><input type="checkbox" disabled={!!busy} checked={clearUpdateToken} onChange={(event) => setClearUpdateToken(event.target.checked)} /> 清除已保存的 token（保存后生效）</label>}
             <button className="primary-action compact" disabled={!state?.available || !!busy}>{busy === "save" ? "正在保存…" : "保存设置"}</button>
           </form>
         </>}

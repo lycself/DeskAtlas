@@ -35,7 +35,8 @@ class DesktopController:
         self.engine = engine
         self.server = ServerThread(app)
         self.keep_awake = hostos.KeepAwake()
-        self.updater = Updater(self.data_dir, lambda: self.desktop.update_url, self._on_update_installing)
+        self.updater = Updater(self.data_dir, lambda: self.desktop.update_url, self._on_update_installing,
+                               token_getter=self.desktop.update_token)
         self.window = None
         self.tray_status: Callable[[str, str | None], None] | None = None
         self.quit_requested: Callable[[], None] | None = None
@@ -117,6 +118,8 @@ class DesktopController:
 
     def update_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
         response: dict[str, Any] = {"message": "设置已保存"}
+        if "update_token" in changes:
+            self.desktop.set_update_token(str(changes["update_token"]))
         if "autostart" in changes:
             hostos.set_autostart(bool(changes["autostart"]))
         if "prevent_sleep" in changes:

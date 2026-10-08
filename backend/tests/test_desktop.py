@@ -1,11 +1,14 @@
 """Desktop shell pieces that run headlessly: settings file, update manifests, embedded server, controller."""
 
 import base64
+import hashlib
+import io
 import json
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.error import HTTPError
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -108,6 +111,129 @@ def test_updater_check_reports_newer_and_current_versions(tmp_path: Path, monkey
         updater.apply()
 
 
+def test_update_token_is_encrypted_local_and_can_be_cleared(tmp_path: Path) -> None:
+    settings = DesktopSettings.load(tmp_path / "settings.json")
+    token = "github_pat_test_credential"
+    settings.set_update_token(token)
+    settings.save()
+    assert token not in settings.path.read_text()
+    assert token not in repr(settings)
+    assert settings.public()["update_token_configured"] is True
+    assert "update_token_encrypted" not in settings.public()
+    loaded = DesktopSettings.load(settings.path)
+    assert loaded.update_token() == token
+    with pytest.raises(ValueError, match="空格或换行"):
+        loaded.set_update_token("token\r\ninjected")
+    (tmp_path / "update-token.key").unlink()
+    with pytest.raises(ValueError, match="重新填写"):
+        loaded.update_token()
+    loaded.set_update_token("")
+    loaded.save()
+    assert DesktopSettings.load(settings.path).update_token() == ""
+
+
+def test_private_release_check_and_download_use_authenticated_api(tmp_path: Path, monkeypatch) -> None:
+    installer = b"verified installer content"
+    installer_url = OFFICIAL + "download/v9.9.9/DeskAtlas-Setup-9.9.9.exe"
+    manifest = {"version": "9.9.9", "url": installer_url,
+                "sha256": hashlib.sha256(installer).hexdigest(), "size": len(installer)}
+    base = "https://api.github.com/repos/lycself/DeskAtlas/releases"
+    calls = []
+
+    def fake_open(request, timeout):
+        calls.append((request.full_url, request.get_header("Accept"), timeout))
+        assert request.unredirected_hdrs["Authorization"] == "Bearer test-token"
+        assert "Authorization" not in request.headers
+        if request.full_url == base + "/latest":
+            return io.BytesIO(json.dumps({"assets": [{"name": "latest.json", "id": 11}]}).encode())
+        if request.full_url == base + "/tags/v9.9.9":
+            return io.BytesIO(json.dumps({"assets": [{"name": "DeskAtlas-Setup-9.9.9.exe", "id": 12}]}).encode())
+        if request.full_url == base + "/assets/11":
+            return io.BytesIO(json.dumps(manifest).encode())
+        if request.full_url == base + "/assets/12":
+            return io.BytesIO(installer)
+        pytest.fail(f"unexpected URL: {request.full_url}")
+
+    monkeypatch.setattr(updater_module, "urlopen", fake_open)
+    updater = Updater(tmp_path, lambda: OFFICIAL + "latest/download/latest.json", lambda: None,
+                      token_getter=lambda: "test-token")
+    assert updater.check()["status"] == "available"
+    assert updater._download(updater._manifest).read_bytes() == installer
+    assert calls == [(base + "/latest", "application/vnd.github+json", 15),
+                     (base + "/assets/11", "application/octet-stream", 15),
+                     (base + "/tags/v9.9.9", "application/vnd.github+json", 15),
+                     (base + "/assets/12", "application/octet-stream", 60)]
+    # Authentication must not bypass the installer's hash verification.
+    with pytest.raises(UpdateError, match="安装包校验失败"):
+        updater._download({**manifest, "sha256": "0" * 64})
+    assert not list(updater.downloads.glob("*.part"))
+
+
+@pytest.mark.parametrize("code, expected", [(401, "无效或已过期"), (403, "Contents"), (404, "仓库访问权限")])
+def test_private_release_auth_errors(tmp_path: Path, monkeypatch, code: int, expected: str) -> None:
+    def fail(request, timeout):
+        raise HTTPError(request.full_url, code, "failure", {}, None)
+
+    monkeypatch.setattr(updater_module, "urlopen", fail)
+    updater = Updater(tmp_path, lambda: OFFICIAL + "latest/download/latest.json", lambda: None,
+                      token_getter=lambda: "secret-token")
+    info = updater.check()
+    assert info["status"] == "error" and expected in info["error"]
+    assert "secret-token" not in json.dumps(info)
+
+
+def test_update_mirror_does_not_receive_token(tmp_path: Path, monkeypatch) -> None:
+    def fake_open(request, timeout):
+        assert request.full_url == MIRROR
+        assert request.get_header("Authorization") is None
+        return io.BytesIO(b"{}")
+
+    def forbidden_token_read():
+        pytest.fail("mirror requests must not even read the official token")
+
+    monkeypatch.setattr(updater_module, "urlopen", fake_open)
+    updater = Updater(tmp_path, lambda: MIRROR, lambda: None, token_getter=forbidden_token_read)
+    assert updater.check()["status"] == "unsigned"
+
+
+def test_github_asset_redirect_does_not_forward_token(tmp_path: Path) -> None:
+    received = []
+
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            received.append((self.path, self.headers.get("Authorization")))
+            if self.path == "/asset":
+                self.send_response(302)
+                self.send_header("Location", f"http://localhost:{self.server.server_port}/download")
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"asset content")
+
+        def log_message(self, *_args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), RedirectHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        updater = Updater(tmp_path, lambda: "", lambda: None)
+        with updater._github_request(f"http://127.0.0.1:{server.server_port}/asset", "test-secret", binary=True) as response:
+            assert response.read() == b"asset content"
+        assert received == [("/asset", "Bearer test-secret"), ("/download", None)]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_private_release_without_requested_asset(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(updater_module, "urlopen", lambda request, timeout: io.BytesIO(b'{"assets": []}'))
+    updater = Updater(tmp_path, lambda: OFFICIAL + "latest/download/latest.json", lambda: None,
+                      token_getter=lambda: "token")
+    assert "缺少更新附件" in updater.check()["error"]
+
+
 def test_controller_serves_and_restarts(tmp_path: Path, monkeypatch) -> None:
     import urllib.request
 
@@ -131,6 +257,18 @@ def test_controller_serves_and_restarts(tmp_path: Path, monkeypatch) -> None:
             state = json.loads(response.read())
         assert state["available"] is True and state["port"] == port
         assert state["display_url"].endswith(f":{port}")
+        with urllib.request.urlopen(urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/panel/settings",
+            data=json.dumps({"update_token": "controller-secret"}).encode(),
+            headers={"Content-Type": "application/json"}, method="PUT"), timeout=10) as response:
+            result = json.loads(response.read())
+        assert result["settings"]["update_token_configured"] is True
+        assert "controller-secret" not in json.dumps(controller.state())
+        assert "controller-secret" not in json.dumps(result)
+        controller.update_settings({"public_address": ""})
+        assert desktop.update_token() == "controller-secret"  # unrelated saves preserve credentials
+        controller.update_settings({"update_token": ""})
+        assert desktop.update_token() == ""
         backup = controller.backup_now("manual")
         assert (settings.backup_dir / backup["name"]).is_file()
         assert "restarting" not in controller.update_settings({"port": port})  # unchanged port: no restart
