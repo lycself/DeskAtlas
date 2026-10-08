@@ -67,7 +67,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.port:
         desktop.port = args.port
 
-    from .hostos import InstanceLock, alert
+    from .hostos import InstanceLock, alert, prepare_native_graphics
+
+    prepare_native_graphics()
 
     lock = InstanceLock(settings.data_dir)
     if not lock.acquire():

@@ -139,7 +139,7 @@ docker compose exec -T db pg_restore -U deskatlas -d deskatlas --clean --if-exis
 支持 Ubuntu Desktop 22.04 / 24.04，amd64（x86_64）。从同一 GitHub Release 下载 `DeskAtlas-<版本>-Ubuntu-amd64.deb`，使用 apt 安装以自动补齐 GTK、WebKit 和托盘依赖，例如：
 
 ```bash
-sudo apt install ./DeskAtlas-1.4.0-Ubuntu-amd64.deb
+sudo apt install ./DeskAtlas-1.4.1-Ubuntu-amd64.deb
 ```
 
 安装后从应用菜单打开 DeskAtlas，也可运行 `deskatlas`。状态窗口与 Windows 一样，首次打开管理端时创建本机账号或先导入数据。默认数据目录为 `~/.local/share/DeskAtlas`（遵循 `XDG_DATA_HOME`），升级和卸载安装包不会删除用户数据。可在面板开启“开机自动启动”，启动项保存到用户的 `~/.config/autostart/deskatlas.desktop`（遵循 `XDG_CONFIG_HOME`），无需以 root 身份运行程序。

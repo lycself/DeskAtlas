@@ -22,6 +22,13 @@ IS_MAC = sys.platform == "darwin"
 IS_LINUX = sys.platform.startswith("linux")
 
 
+def prepare_native_graphics() -> None:
+    if IS_LINUX and is_frozen():
+        # PyInstaller caches reference excluded graphics libraries; the deb uses the host's loaders and typelibs.
+        for key in ("GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR", "GI_TYPELIB_PATH", "GTK_PATH", "GIO_MODULE_DIR"):
+            os.environ.pop(key, None)
+
+
 def external_environment() -> dict[str, str]:
     """System desktop tools must load system libraries rather than PyInstaller's copies."""
     env = os.environ.copy()

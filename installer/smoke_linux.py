@@ -71,6 +71,12 @@ def main() -> int:
                 time.sleep(3)
                 image = ImageGrab.grab()
                 assert len(image.getcolors(image.width * image.height) or []) > 30, "Desktop screenshot is blank"
+                geometry_output = subprocess.run(["xdotool", "getwindowgeometry", "--shell", window],
+                                                 check=True, capture_output=True, text=True).stdout
+                geometry = dict(line.split("=", 1) for line in geometry_output.splitlines() if "=" in line)
+                x, y = int(geometry["X"]), int(geometry["Y"])
+                logo = image.crop((x + 16, y + 16, x + 96, y + 60)).convert("RGB")
+                assert sum(blue > red + 20 for red, green, blue in logo.getdata()) > 40, "Brand PNG did not render"
                 Path("dist").mkdir(exist_ok=True)
                 image.save("dist/ubuntu-smoke.png")
                 request("/api/setup/initialize", {"username": "smoke-admin", "password": "smoke-password-123"})

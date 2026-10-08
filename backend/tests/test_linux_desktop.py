@@ -36,6 +36,22 @@ def test_linux_autostart_uses_user_desktop_entry(tmp_path, monkeypatch):
     assert not entry.exists()
 
 
+def test_frozen_linux_uses_host_graphics_cache_but_development_keeps_overrides(monkeypatch):
+    linux_host(monkeypatch)
+    monkeypatch.setattr(hostos, "is_frozen", lambda: True)
+    for key in ("GDK_PIXBUF_MODULE_FILE", "GI_TYPELIB_PATH", "GTK_PATH"):
+        monkeypatch.setenv(key, "/bundled/old-cache")
+    monkeypatch.setenv("DESKATLAS_DATA_DIR", "/user/data")
+    hostos.prepare_native_graphics()
+    assert "GDK_PIXBUF_MODULE_FILE" not in hostos.os.environ
+    assert "GI_TYPELIB_PATH" not in hostos.os.environ
+    assert hostos.os.environ["DESKATLAS_DATA_DIR"] == "/user/data"
+    monkeypatch.setattr(hostos, "is_frozen", lambda: False)
+    monkeypatch.setenv("GDK_PIXBUF_MODULE_FILE", "/custom/cache")
+    hostos.prepare_native_graphics()
+    assert hostos.os.environ["GDK_PIXBUF_MODULE_FILE"] == "/custom/cache"
+
+
 def test_linux_system_dialog_cancel_and_host_library_environment(monkeypatch):
     linux_host(monkeypatch)
     monkeypatch.setenv("LD_LIBRARY_PATH", "/bundled/libraries")
