@@ -164,7 +164,7 @@ export function PanelApp() {
         {!form && <p>桌面版运行时，可在这里修改服务端口、开机自启动、防睡眠和自动备份；开发模式下没有这些设置。</p>}
         {form && <>
           <label className="panel-toggle">
-            <div><strong>开机自动启动</strong><small>登录 Windows 后自动运行并对外提供服务。</small></div>
+            <div><strong>开机自动启动</strong><small>登录电脑后自动运行并对外提供服务。</small></div>
             <span className="switch"><input type="checkbox" disabled={!state?.supports?.autostart || !!busy} checked={form.autostart} onChange={(event) => toggle("autostart", event.target.checked)} /><i /></span>
           </label>
           <label className="panel-toggle">
@@ -200,7 +200,13 @@ export function PanelApp() {
         {state?.update?.notes && <pre className="panel-notes">{state.update.notes}</pre>}
         <div className="panel-buttons">
           <button disabled={!state?.available || !!busy} onClick={() => void run("check", async () => { await api("/api/panel/update/check", { method: "POST" }); })}><RefreshCw size={15} />{busy === "check" ? "正在检查…" : "检查更新"}</button>
-          <button className="accent" disabled={!state?.available || !!busy || !(state?.update?.status === "available" || state?.update?.status === "ready")} onClick={() => { if (window.confirm("安装更新会短暂停止服务并自动重新启动。现在更新？")) void run("apply", async () => { await api("/api/panel/update/apply", { method: "POST" }); setMessage("正在下载并安装更新，程序会自动重启。"); }); }}>立即更新</button>
+          <button className="accent" disabled={!state?.available || !!busy || !(state?.update?.status === "available" || state?.update?.status === "ready")} onClick={() => {
+            const linux = state?.platform === "linux";
+            if (linux || window.confirm("安装更新会短暂停止服务并自动重新启动。现在更新？")) void run("apply", async () => {
+              await api("/api/panel/update/apply", { method: "POST" });
+              setMessage(linux ? "正在下载更新包，完成后会打开系统安装器。安装后退出并重新启动 DeskAtlas。" : "正在下载并安装更新，程序会自动重启。");
+            });
+          }}>{state?.platform === "linux" ? "下载更新包" : "立即更新"}</button>
         </div>
       </section>
 

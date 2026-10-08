@@ -5,6 +5,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from .student_rules import student_email
+from .program_levels import ProgramLevel
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
@@ -20,7 +21,7 @@ class StudentData(BaseModel):
     adviser: str = Field(min_length=1, max_length=80)
     email: EmailStr
     enrollment_year: int
-    program_level: Literal["硕士", "博士"]
+    program_level: ProgramLevel
     major_id: int
 
     @field_validator("name", "student_no", "adviser", mode="before")
@@ -154,7 +155,7 @@ class DirectStudentCreate(BaseModel):
     adviser: str | None = Field(default=None, max_length=80)
     email: EmailStr | None = None
     enrollment_year: int | None = None
-    program_level: Literal["硕士", "博士"] | None = None
+    program_level: ProgramLevel | None = None
     major_id: int | None = None
     seat_id: str | None = None
 
@@ -183,7 +184,7 @@ class StudentUpdate(BaseModel):
     adviser: str | None = Field(default=None, max_length=80)
     email: EmailStr | None = None
     enrollment_year: int | None = None
-    program_level: Literal["硕士", "博士"] | None = None
+    program_level: ProgramLevel | None = None
     major_id: int | None = None
 
     @model_validator(mode="before")

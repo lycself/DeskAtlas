@@ -55,6 +55,7 @@ from .schemas import (
     allowed_years,
 )
 from .panel import router as panel_router
+from .program_levels import PROGRAM_LEVELS
 from .seed import seed_reference_data
 from .setup import router as setup_router
 from .static_site import install_static_site
@@ -384,7 +385,7 @@ def public_bootstrap(db: Db) -> dict[str, Any]:
     ).unique().all()
     return {
         "years": allowed_years(),
-        "program_levels": ["硕士", "博士"],
+        "program_levels": PROGRAM_LEVELS,
         "majors": [{"id": major.id, "name": major.name} for major in majors],
         "rooms": serialize_rooms(db, rooms, major_order={major.name: index for index, major in enumerate(majors)}),
     }
@@ -947,7 +948,7 @@ def admin_search(db: Db, _: Admin, q: str = Query(default="", max_length=80)) ->
 @app.get("/api/admin/options")
 def admin_options(db: Db, _: Admin) -> dict[str, Any]:
     majors = db.scalars(select(Major).order_by(Major.sort_order, Major.name)).all()
-    return {"years": allowed_years(), "program_levels": ["硕士", "博士"],
+    return {"years": allowed_years(), "program_levels": PROGRAM_LEVELS,
             "majors": [{"id": major.id, "name": major.name, "is_active": major.is_active} for major in majors]}
 
 

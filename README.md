@@ -9,7 +9,7 @@ DeskAtlas 是部署在内网的研究生工位可视化、申请与管理平台�
 - PostgreSQL（服务器部署）或 SQLite（桌面版）：房间、工位、申请、分配历史、设置与审计
 - React Konva：非 CAD 的拖放式工位图编辑器
 - pnpm：唯一 JavaScript 包管理器，`pnpm dev` 统一管理本地数据库与前后端
-- 桌面版：pystray 托盘 + pywebview 状态面板 + PyInstaller + Inno Setup，GitHub Actions 打 tag 即出安装包
+- 桌面版：pystray 托盘 + pywebview 状态面板 + PyInstaller，Windows 使用 Inno Setup，Ubuntu 使用 `.deb` 安装包，GitHub Actions 打 tag 发布双平台版本
 
 ## 本地运行
 
@@ -98,6 +98,8 @@ pnpm db:migrate
 
 旧版两表导入脚本 `scripts/import_office_survey.py` 仅适用于旧表格式。当前数据同步请使用上述最新安排脚本。
 
+培养层次支持本科、硕士、博士、博士后、硕转博；导入识别原表中的“本”“博后”等简称。新同步保留用房表里的“硕转博”细分标签。旧版导入丢失的本科/博后可用 `.venv/bin/python scripts/repair_program_levels.py` 预览，再加 `--apply` 写入；脚本先生成备份，按当前房间、工位、姓名和导师匹配，已有其他层次或工位不匹配的记录交由人工核对。
+
 若旧数据中的 311、406、680 房间仍缺少布局图边缘墙线，运行 `.venv/bin/python scripts/repair_latest_walls.py`。脚本先备份这三间房的布局，再补全墙线，不变更工位分配。
 
 ## 备份与恢复
@@ -121,16 +123,28 @@ docker compose exec -T db pg_restore -U deskatlas -d deskatlas --clean --if-exis
 
 命令行方式修改管理员密码：运行 `pnpm admin:set` 并输入两次新密码，命令直接更新项目 `.env` 中的哈希，不保存明文，随后重启 `pnpm dev`（或 API 服务）生效。`pnpm admin:hash` 仅生成哈希，不修改配置。
 
-## 桌面版（Windows 托盘程序）
+## 桌面版（Windows / Ubuntu）
 
-桌面版把整个系统打包成一个 Windows 程序：安装后常驻任务栏托盘，FastAPI 在本机监听局域网端口，同时托管静态前端和 API；数据保存在 SQLite 文件里。适合没有常开服务器、由管理员自己的电脑对外提供服务的场景。
+桌面版把整个系统打包成桌面程序：安装后常驻系统托盘，FastAPI 在本机监听局域网端口，同时托管静态前端和 API；数据保存在 SQLite 文件里。适合没有常开服务器、由管理员自己的电脑对外提供服务的场景。Ubuntu 使用 GTK / WebKit 状态窗口和 AppIndicator 托盘。
 
-### 安装与首次运行
+### Windows 安装与首次运行
 
 1. 从 GitHub Releases 下载 `DeskAtlas-Setup-<版本>.exe` 并运行。安装到当前用户目录，整个安装过程不需要管理员权限。首次安装时向导里可勾选“登录 Windows 后自动启动”（默认不勾选，升级时不再询问，以程序内的开关为准）。
 2. DeskAtlas 第一次运行并开始监听局域网端口时，Windows 会弹出防火墙提示，选择“允许访问”（专用和公用网络都勾选）学生才能打开地址。如果点了取消，可到“Windows 安全中心 → 防火墙和网络保护 → 允许应用通过防火墙”里勾选 DeskAtlas。
 3. 首次启动会打开状态面板窗口，并在托盘出现图标。面板显示学生访问地址和二维码；打开“管理端”后进入初始化向导，创建管理员或从备份包恢复。
 4. 关闭面板窗口只是隐藏，服务继续运行；托盘图标右键“退出 DeskAtlas”并确认后才会停止服务。
+
+### Ubuntu Desktop 安装与首次运行
+
+支持 Ubuntu Desktop 22.04 / 24.04，amd64（x86_64）。从同一 GitHub Release 下载 `DeskAtlas-<版本>-Ubuntu-amd64.deb`，使用 apt 安装以自动补齐 GTK、WebKit 和托盘依赖，例如：
+
+```bash
+sudo apt install ./DeskAtlas-1.4.0-Ubuntu-amd64.deb
+```
+
+安装后从应用菜单打开 DeskAtlas，也可运行 `deskatlas`。状态窗口与 Windows 一样，首次打开管理端时创建本机账号或先导入数据。默认数据目录为 `~/.local/share/DeskAtlas`（遵循 `XDG_DATA_HOME`），升级和卸载安装包不会删除用户数据。可在面板开启“开机自动启动”，启动项保存到用户的 `~/.config/autostart/deskatlas.desktop`（遵循 `XDG_CONFIG_HOME`），无需以 root 身份运行程序。
+
+Ubuntu 的托盘由系统 AppIndicator 支持；其他 GNOME 桌面需要启用 AppIndicator 扩展才能显示托盘图标。关闭状态窗口会隐藏到托盘，通过托盘“退出”停止服务。防睡眠使用系统的 `systemd-inhibit`。
 
 ### 状态面板与托盘菜单
 
@@ -162,7 +176,9 @@ docker compose exec -T db pg_restore -U deskatlas -d deskatlas --clean --if-exis
 
 ### 在线更新
 
-程序启动后及每 6 小时读取更新源（默认 `https://github.com/lycself/DeskAtlas/releases/latest/download/latest.json`），校验 Ed25519 签名与安装包哈希后，在面板里提示“立即更新”。更新时下载安装包、静默安装并自动重启，新版本启动时先执行数据库迁移。校内网无法访问 GitHub 时，把 Release 里的 `latest.json` 和安装包放到校内可访问的静态目录，并在面板中修改更新源地址即可；此时清单必须是签名过的（见下文发布流程第 3 步），未签名的清单只在官方 GitHub 地址下被接受。
+程序启动后及每 6 小时读取更新源。Windows 默认使用 `https://github.com/lycself/DeskAtlas/releases/latest/download/latest.json`，更新时下载安装包、静默安装并自动重启。Ubuntu 默认使用同一 Release 的 `latest-linux.json`，在面板点击“下载更新包”后校验 `.deb` 并打开系统安装器，也可用 `sudo apt install ./安装包.deb` 安装；完成后退出并重新启动 DeskAtlas。新版本启动时先执行数据库迁移。
+
+两种平台都校验 Ed25519 签名与安装包哈希。校内网无法访问 GitHub 时，把对应平台的清单和安装包放到校内可访问的静态目录，并在面板中修改更新源地址即可；此时清单必须是签名过的（见下文发布流程第 3 步），未签名的清单只在官方 GitHub 地址下被接受。
 
 私有仓库更新：在 GitHub 的 Settings → Developer settings → Personal access tokens → Fine-grained tokens 中创建 token，Repository access 仅选择 `lycself/DeskAtlas`，Repository permissions 中将 **Contents** 设为 **Read-only**。在桌面状态面板“运行设置 → GitHub 更新 token”填写并保存，更新源保持默认地址，再点击“检查更新”。客户端会通过 GitHub Release API 认证获取 `latest.json` 和安装包，继续验证清单及 sha256。此方式仍需要网络能够访问 GitHub API 和附件下载域名。
 
@@ -181,7 +197,7 @@ token 使用本机独立密钥加密，密文保存在 `settings.json`，密钥�
    ```
 
    不带说明的轻量 tag 会退回使用该提交的提交信息。
-2. `.github/workflows/release.yml` 在 Windows runner 上执行：静态导出前端、运行后端测试、PyInstaller 打包、Inno Setup 生成安装包、生成 `latest.json`，并用 Actions 自带的 token 发布到 GitHub Release。手动触发（workflow_dispatch）只产出构建产物，不发布。
+2. `.github/workflows/release.yml` 同时构建 Windows 安装器和 Ubuntu `.deb`：检查前端、运行后端测试、静态导出、PyInstaller 打包，并生成 `latest.json` / `latest-linux.json`。Ubuntu 包在 22.04 与 24.04 上安装并启动真实 GTK 状态窗口，检查 API、静态资源和备份。所有平台成功后，用 Actions 自带的 token 一次发布到 GitHub Release。普通 `main` 推送及手动触发（workflow_dispatch）只产出测试构建，不更新正式 Release；正式更新必须推送新版本的 `v*` 标签。
 3. 默认更新源是 GitHub Releases，走 HTTPS，客户端校验安装包 sha256，`latest.json` 不签名也会被接受。只有当更新源改为校内镜像时才需要签名：运行 `.venv/bin/python scripts/generate_update_keys.py`，公钥写入 `desktop/update_key.py`（仓库已包含当前公钥），私钥保存为 GitHub Actions 密钥 `DESKATLAS_UPDATE_PRIVATE_KEY`，之后的发布会自动签名，镜像里的清单才会被客户端接受。
 
 没有代码签名证书时，首次运行安装包 SmartScreen 会提示“Windows 已保护你的电脑”，点击“更多信息 → 仍要运行”。

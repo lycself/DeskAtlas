@@ -86,6 +86,29 @@ def test_latest_import_identity_conflicts_history_and_idempotency():
         db.rollback()
 
 
+def test_latest_preview_preserves_undergraduate_postdoc_and_transfer_stage():
+    directory = workbook_bytes([
+        ["学号", "姓名", "导师姓名", "年级", "培养层次"],
+        ["stage-1", "转博人员", "导师", "2026级", "博士"],
+    ])
+    teachers = workbook_bytes([["姓名", "职称", "中心职务", "教研中心"], ["导师", "教授", None, "光学"]])
+    roster = workbook_bytes([
+        ["房间", "座位号", "姓名", "导师", "年级", "培养层次"],
+        [301, 1, "转博人员", "导师", "2026级", "硕转博"],
+        [301, 2, "本科人员", "导师", "2024级", "本"],
+        [301, 3, "博后人员", "导师", None, "博后"],
+    ])
+    floorplan = Workbook()
+    floorplan.active["E2"] = 301
+    for cell, value in zip(("B3", "C3", "D3"), (1, 2, 3)):
+        floorplan.active[cell] = value
+    stream = BytesIO()
+    floorplan.save(stream)
+    preview = latest_preview(roster, stream.getvalue(), directory, teachers)
+    assert preview["students"][0]["program_level"] == "硕转博"
+    assert [row["program_level"] for row in preview["rooms"]["301"]["rows"]] == ["硕转博", "本科", "博士后"]
+
+
 def test_survey_wall_import_does_not_copy_adjacent_room_border():
     from openpyxl.styles import Border, Side
     from backend.app.office_import import surveyed_preview

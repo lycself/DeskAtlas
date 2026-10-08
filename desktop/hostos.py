@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -18,6 +19,17 @@ log = logging.getLogger(__name__)
 APP_NAME = "DeskAtlas"
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
+IS_LINUX = sys.platform.startswith("linux")
+
+
+def external_environment() -> dict[str, str]:
+    """System desktop tools must load system libraries rather than PyInstaller's copies."""
+    env = os.environ.copy()
+    if "LD_LIBRARY_PATH_ORIG" in env:
+        env["LD_LIBRARY_PATH"] = env["LD_LIBRARY_PATH_ORIG"]
+    else:
+        env.pop("LD_LIBRARY_PATH", None)
+    return env
 
 
 def executable_command() -> list[str]:
@@ -72,6 +84,12 @@ def confirm(title: str, message: str) -> bool:
         except (OSError, subprocess.TimeoutExpired):
             return True
         return completed.returncode == 0 and "确定" in completed.stdout
+    if IS_LINUX:
+        try:
+            return subprocess.run(["zenity", "--question", f"--title={title}", f"--text={message}"],
+                                  env=external_environment(), timeout=120).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
     return True
 
 
@@ -80,6 +98,12 @@ def alert(title: str, message: str) -> None:
         ctypes.windll.user32.MessageBoxW(None, message, title, 0x40 | 0x10000 | 0x40000)  # type: ignore[attr-defined]
     elif IS_MAC:
         subprocess.run(["osascript", "-e", f'display dialog "{message}" with title "{title}" buttons {{"确定"}} default button "确定"'], capture_output=True, timeout=120)
+    elif IS_LINUX:
+        try:
+            subprocess.run(["zenity", "--info", f"--title={title}", f"--text={message}"],
+                           env=external_environment(), timeout=120)
+        except (OSError, subprocess.TimeoutExpired):
+            log.warning("%s: %s", title, message)
     else:
         log.info("%s: %s", title, message)
 
@@ -90,7 +114,7 @@ class KeepAwake:
     """Prevent system sleep while enabled. Windows requires the flag to live on one long-lived thread."""
 
     def __init__(self) -> None:
-        self.supported = IS_WINDOWS or IS_MAC
+        self.supported = IS_WINDOWS or IS_MAC or (IS_LINUX and bool(shutil.which("systemd-inhibit")))
         self.enabled = False
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -108,6 +132,16 @@ class KeepAwake:
                 self._process = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
             elif not self.enabled and self._process is not None:
                 self._process.terminate()
+                self._process = None
+        elif IS_LINUX:
+            if self.enabled and self._process is None:
+                self._process = subprocess.Popen(
+                    ["systemd-inhibit", "--what=sleep", "--who=DeskAtlas", "--why=Serving the office map", "sleep", "infinity"],
+                    env=external_environment(),
+                )
+            elif not self.enabled and self._process is not None:
+                self._process.terminate()
+                self._process.wait(timeout=5)
                 self._process = None
 
     def close(self) -> None:
@@ -169,8 +203,12 @@ def _launch_agent() -> Path:
     return Path.home() / "Library" / "LaunchAgents" / "com.deskatlas.desktop.plist"
 
 
+def _linux_autostart() -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "autostart/deskatlas.desktop"
+
+
 def autostart_supported() -> bool:
-    return is_frozen() and (IS_WINDOWS or IS_MAC)
+    return is_frozen() and (IS_WINDOWS or IS_MAC or IS_LINUX)
 
 
 def autostart_enabled() -> bool:
@@ -183,6 +221,9 @@ def autostart_enabled() -> bool:
         return not (isinstance(approved, bytes) and approved and approved[0] & 1)
     if IS_MAC:
         return _launch_agent().exists()
+    if IS_LINUX:
+        path = _linux_autostart()
+        return path.is_file() and "Hidden=true" not in path.read_text(encoding="utf-8")
     return False
 
 
@@ -203,6 +244,17 @@ def set_autostart(enabled: bool) -> None:
                 winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, _run_value())
         except OSError as error:
             raise ValueError(f"无法创建开机启动项：{error}") from error
+        return
+    if IS_LINUX:
+        path = _linux_autostart()
+        if not enabled:
+            path.unlink(missing_ok=True)
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        command = " ".join('"' + arg.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`").replace("$", "\\$").replace("%", "%%") + '"'
+                           for arg in executable_command())
+        path.write_text("[Desktop Entry]\nType=Application\nName=DeskAtlas\n"
+                        f"Exec={command}\nIcon=deskatlas\nTerminal=false\n", encoding="utf-8")
         return
     plist = _launch_agent()
     if not enabled:
@@ -231,15 +283,21 @@ def open_path(path: Path) -> None:
     elif IS_MAC:
         subprocess.Popen(["open", str(path)])
     else:
-        subprocess.Popen(["xdg-open", str(path)])
+        subprocess.Popen(["xdg-open", str(path)], env=external_environment())
 
 
 def open_url(url: str) -> None:
-    webbrowser.open(url, new=2)
+    if IS_LINUX:
+        subprocess.Popen(["xdg-open", url], env=external_environment())
+    else:
+        webbrowser.open(url, new=2)
 
 
 def run_installer(path: Path) -> None:
     """Start a downloaded Inno Setup package silently; it closes and relaunches DeskAtlas itself."""
+    if IS_LINUX:
+        subprocess.Popen(["xdg-open", str(path)], env=external_environment())
+        return
     if not IS_WINDOWS:
         raise ValueError("自动安装更新只支持 Windows")
     subprocess.Popen(

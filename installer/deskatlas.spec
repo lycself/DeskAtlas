@@ -48,6 +48,9 @@ hiddenimports = (
 )
 if sys.platform == "win32":
     hiddenimports += ["clr", "pythonnet", "webview.platforms.edgechromium", "webview.platforms.winforms", "pystray._win32"]
+elif sys.platform.startswith("linux"):
+    hiddenimports += ["webview.platforms.gtk", "pystray._appindicator", "gi.repository.Gtk",
+                      "gi.repository.WebKit2", "gi.repository.AyatanaAppIndicator3"]
 
 a = Analysis(
     [str(ROOT / "installer" / "launch.py")],
@@ -57,6 +60,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
+    hooksconfig={"gi": {"module-versions": {"Gtk": "3.0", "WebKit2": "4.1", "JavaScriptCore": "4.1", "AyatanaAppIndicator3": "0.1"}}},
     excludes=["tkinter", "matplotlib", "numpy", "pandas", "psycopg", "pytest"],
     noarchive=False,
 )

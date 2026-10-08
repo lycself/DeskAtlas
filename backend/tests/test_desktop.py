@@ -133,6 +133,8 @@ def test_update_token_is_encrypted_local_and_can_be_cleared(tmp_path: Path) -> N
 
 
 def test_private_release_check_and_download_use_authenticated_api(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(updater_module, "IS_WINDOWS", True)
+    monkeypatch.setattr(updater_module, "IS_LINUX", False)
     installer = b"verified installer content"
     installer_url = OFFICIAL + "download/v9.9.9/DeskAtlas-Setup-9.9.9.exe"
     manifest = {"version": "9.9.9", "url": installer_url,

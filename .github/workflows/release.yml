@@ -1,20 +1,18 @@
-name: Release desktop installer
+name: Release desktop installers
 
 on:
   push:
     tags:
       - "v*"
-    # Pushes to main only build and upload the installer as a workflow artifact; publishing needs a v* tag.
     branches:
       - main
-    # Path filters apply to branch pushes only; tag pushes always build.
     paths-ignore:
       - "**.md"
       - "ticketly/**"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (without v), used for test builds that are not published; pushes to main build 0.0.0"
+        description: "Test build version (without v); publishing requires a v* tag"
         required: true
         default: "0.0.0"
 
@@ -23,12 +21,21 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
-  # A newer push to main supersedes a running test build; tag builds always finish.
   cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            requirements: desktop/requirements.txt
+          - os: ubuntu-22.04
+            platform: ubuntu
+            requirements: desktop/requirements-linux.txt
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
       PYTHONUTF8: "1"
@@ -38,12 +45,16 @@ jobs:
       - name: Resolve version
         id: version
         shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version || '0.0.0' }}
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "value=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            BUILD_VERSION="${GITHUB_REF#refs/tags/v}"
           else
-            echo "value=${{ github.event.inputs.version || '0.0.0' }}" >> "$GITHUB_OUTPUT"
+            BUILD_VERSION="$REQUESTED_VERSION"
           fi
+          [[ "$BUILD_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          echo "value=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -61,9 +72,21 @@ jobs:
           cache-dependency-path: |
             backend/requirements.txt
             desktop/requirements.txt
+            desktop/requirements-linux.txt
+
+      - name: Install Ubuntu desktop libraries
+        if: matrix.platform == 'ubuntu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libgirepository1.0-dev \
+            gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-ayatanaappindicator3-0.1 \
+            libayatana-appindicator3-dev zenity xdg-utils xvfb xdotool dbus-x11 fonts-noto-cjk desktop-file-utils
 
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check frontend
+        run: pnpm lint && pnpm typecheck && pnpm test:layout
 
       - name: Build static frontend
         run: pnpm exec next build
@@ -73,11 +96,13 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r backend/requirements.txt -r desktop/requirements.txt
+          python -m pip install -r backend/requirements.txt -r ${{ matrix.requirements }}
 
       - name: Stamp version
         shell: bash
-        run: echo "VERSION = \"${{ steps.version.outputs.value }}\"" > backend/app/_build_version.py
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.value }}
+        run: python -c 'import os; from pathlib import Path; Path("backend/app/_build_version.py").write_text("VERSION = " + repr(os.environ["BUILD_VERSION"]) + "\n")'
 
       - name: Run backend tests
         run: python -m pytest backend/tests -q
@@ -85,59 +110,137 @@ jobs:
       - name: Generate icon
         run: python installer/make_icon.py
 
-      - name: Build application with PyInstaller
+      - name: Build Windows application
+        if: matrix.platform == 'windows'
         run: python -m PyInstaller installer/deskatlas.spec --noconfirm --clean
 
-      - name: Smoke test the bundle
+      - name: Build Ubuntu application
+        if: matrix.platform == 'ubuntu'
+        run: xvfb-run -a python -m PyInstaller installer/deskatlas.spec --noconfirm --clean
+
+      - name: Smoke test Windows bundle
+        if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          $exe = "dist\DeskAtlas\DeskAtlas.exe"
-          if (-not (Test-Path $exe)) { throw "bundle missing" }
-          if (-not (Test-Path "dist\DeskAtlas\_internal\static\index.html")) { throw "static site missing from bundle" }
+          if (-not (Test-Path "dist\DeskAtlas\DeskAtlas.exe")) { throw "bundle missing" }
+          if (-not (Test-Path "dist\DeskAtlas\_internal\static\index.html")) { throw "static site missing" }
 
       - name: Install Inno Setup
+        if: matrix.platform == 'windows'
         run: choco install innosetup --no-progress -y
 
-      - name: Build installer
+      - name: Build Windows installer
+        if: matrix.platform == 'windows'
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.version.outputs.value }}" installer\DeskAtlas.iss
-          Get-ChildItem dist\*.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Write signed update manifest
+      - name: Build and install Ubuntu package
+        if: matrix.platform == 'ubuntu'
+        run: |
+          python installer/build_deb.py --version '${{ steps.version.outputs.value }}'
+          sudo apt-get install -y ./dist/DeskAtlas-${{ steps.version.outputs.value }}-Ubuntu-amd64.deb
+          desktop-file-validate /usr/share/applications/deskatlas.desktop
+
+      - name: Smoke test installed Ubuntu desktop
+        if: matrix.platform == 'ubuntu'
+        env:
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1280x1024x24' python installer/smoke_linux.py --binary /usr/bin/deskatlas
+
+      - name: Write update manifest
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           DESKATLAS_UPDATE_PRIVATE_KEY: ${{ secrets.DESKATLAS_UPDATE_PRIVATE_KEY }}
+          BUILD_VERSION: ${{ steps.version.outputs.value }}
+          BUILD_PLATFORM: ${{ matrix.platform }}
         run: |
-          VERSION="${{ steps.version.outputs.value }}"
-          # Notes come from the annotated tag message (a lightweight tag falls back to the commit message).
-          # They are shown in the tray panel and on the release page, so write them in Chinese.
-          # checkout only leaves a lightweight copy of the tag, so fetch the tag object first.
-          git fetch --force --no-tags origin "+refs/tags/v$VERSION:refs/tags/v$VERSION"
-          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "v$VERSION" > dist/notes.md
+          git fetch --force --no-tags origin "+refs/tags/v$BUILD_VERSION:refs/tags/v$BUILD_VERSION"
+          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "v$BUILD_VERSION" > dist/notes.md
+          if [[ "$BUILD_PLATFORM" == windows ]]; then
+            INSTALLER="DeskAtlas-Setup-$BUILD_VERSION.exe"
+            MANIFEST="latest.json"
+          else
+            INSTALLER="DeskAtlas-$BUILD_VERSION-Ubuntu-amd64.deb"
+            MANIFEST="latest-linux.json"
+          fi
           python scripts/make_update_manifest.py \
-            --version "$VERSION" \
-            --installer "dist/DeskAtlas-Setup-$VERSION.exe" \
-            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v$VERSION/DeskAtlas-Setup-$VERSION.exe" \
-            --notes-file dist/notes.md \
-            --output dist/latest.json
+            --version "$BUILD_VERSION" --installer "dist/$INSTALLER" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v$BUILD_VERSION/$INSTALLER" \
+            --notes-file dist/notes.md --output "dist/$MANIFEST"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: DeskAtlas-${{ steps.version.outputs.value }}
+          name: DeskAtlas-${{ steps.version.outputs.value }}-${{ matrix.platform }}
           path: |
             dist/DeskAtlas-Setup-*.exe
-            dist/latest.json
+            dist/DeskAtlas-*-Ubuntu-amd64.deb
+            dist/latest*.json
+            dist/notes.md
           if-no-files-found: error
 
-      - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Upload Ubuntu smoke screenshot
+        if: always() && matrix.platform == 'ubuntu'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ubuntu-desktop-smoke-${{ steps.version.outputs.value }}
+          path: dist/ubuntu-smoke.png
+          if-no-files-found: ignore
+
+  ubuntu-compatibility:
+    needs: desktop
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: DeskAtlas-*-ubuntu
+          merge-multiple: true
+          path: dist
+      - name: Install the Ubuntu 22.04 package on Ubuntu 24.04
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./dist/DeskAtlas-*-Ubuntu-amd64.deb xvfb xdotool dbus-x11 fonts-noto-cjk desktop-file-utils
+          python -m pip install pillow
+          desktop-file-validate /usr/share/applications/deskatlas.desktop
+      - name: Smoke test Ubuntu 24.04 desktop
+        env:
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: dbus-run-session -- xvfb-run -a -s '-screen 0 1280x1024x24' python installer/smoke_linux.py --binary /usr/bin/deskatlas
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Ubuntu-24.04-desktop-smoke
+          path: dist/ubuntu-smoke.png
+          if-no-files-found: ignore
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, ubuntu-compatibility]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: DeskAtlas-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish Windows and Ubuntu together
         uses: softprops/action-gh-release@v2
         with:
-          name: DeskAtlas ${{ steps.version.outputs.value }}
+          name: DeskAtlas ${{ github.ref_name }}
           body_path: dist/notes.md
+          fail_on_unmatched_files: true
           files: |
-            dist/DeskAtlas-Setup-${{ steps.version.outputs.value }}.exe
+            dist/DeskAtlas-Setup-*.exe
+            dist/DeskAtlas-*-Ubuntu-amd64.deb
             dist/latest.json
+            dist/latest-linux.json

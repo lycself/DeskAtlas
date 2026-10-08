@@ -8,6 +8,7 @@ from typing import Callable
 import webview
 
 from .controller import DesktopController
+from .hostos import IS_LINUX
 
 
 log = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class PanelWindow:
             log.debug("load url failed", exc_info=True)
 
     def run(self, on_start: Callable[[], None] | None = None) -> None:
-        webview.start(on_start, private_mode=False)
+        webview.start(on_start, private_mode=False, **({"gui": "gtk"} if IS_LINUX else {}))
 
     def destroy(self) -> None:
         # destroy() also fires closing; an explicit quit must not be vetoed.

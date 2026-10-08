@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from cryptography.fernet import Fernet, InvalidToken
 log = logging.getLogger(__name__)
 OFFICIAL_REPOSITORY = "lycself/DeskAtlas"
 OFFICIAL_RELEASES = f"https://github.com/{OFFICIAL_REPOSITORY}/releases/"
-DEFAULT_UPDATE_URL = OFFICIAL_RELEASES + "latest/download/latest.json"
+DEFAULT_UPDATE_URL = OFFICIAL_RELEASES + ("latest/download/latest-linux.json" if sys.platform.startswith("linux") else "latest/download/latest.json")
 
 
 @dataclass

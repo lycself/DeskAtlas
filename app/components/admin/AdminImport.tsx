@@ -48,7 +48,7 @@ export function AdminImport({ active = true }: { active?: boolean }) {
     catch (caught) { setError(caught instanceof Error ? caught.message : "导入失败"); }
     finally { setBusy(false); }
   };
-  const programLevels = options?.program_levels ?? ["硕士", "博士"];
+  const programLevels = options?.program_levels ?? [];
 
   return <div className="admin-page">
     <header className="page-heading"><div><h1>数据导入</h1><p className="page-subtitle">把旧版 Excel 工位表一次性导入为房间、工位和占用记录。</p></div></header>

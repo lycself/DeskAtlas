@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="deskatlas", description="DeskAtlas 桌面版")
-    parser.add_argument("--data-dir", type=Path, default=None, help="数据目录（默认 %%LOCALAPPDATA%%\\DeskAtlas）")
+    parser.add_argument("--data-dir", type=Path, default=None, help="数据目录（默认使用当前用户的应用数据目录）")
     parser.add_argument("--no-window", action="store_true", help="不打开状态面板窗口，只显示托盘图标")
     parser.add_argument("--port", type=int, default=None, help="覆盖设置中的端口（不保存）")
     return parser.parse_args(argv)

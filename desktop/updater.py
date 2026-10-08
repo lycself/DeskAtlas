@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from packaging.version import InvalidVersion, Version
 
 from backend.app.version import VERSION
-from .hostos import IS_WINDOWS, run_installer
+from .hostos import IS_LINUX, IS_WINDOWS, run_installer
 from .settings import OFFICIAL_RELEASES, OFFICIAL_REPOSITORY
 from .update_key import PUBLIC_KEY
 
@@ -156,11 +156,12 @@ class Updater:
     def apply(self) -> dict:
         if self.info["status"] not in {"available", "ready"} or not self._manifest:
             raise ValueError("当前没有可安装的更新")
-        if not IS_WINDOWS:
-            raise ValueError("自动安装更新只支持 Windows，请手动下载安装包")
+        if not (IS_WINDOWS or IS_LINUX):
+            raise ValueError("当前平台请手动下载安装包")
+        self._set(status="downloading", error=None)
         thread = threading.Thread(target=self._download_and_install, name="updater", daemon=True)
         thread.start()
-        return self._set(status="downloading", error=None)
+        return dict(self.info)
 
     def _download_and_install(self) -> None:
         manifest = self._manifest or {}
@@ -170,7 +171,8 @@ class Updater:
             self._set(status="ready")
             log.info("installing update %s from %s", manifest.get("version"), package)
             run_installer(package)
-            self.on_installing()
+            if IS_WINDOWS:
+                self.on_installing()
         except (UpdateError, URLError, OSError, ValueError) as exc:
             log.exception("update failed")
             self._set(status="error", error=f"更新失败：{exc}")
@@ -181,7 +183,12 @@ class Updater:
         if not url or not expected_hash:
             raise UpdateError("更新清单缺少下载地址或校验值")
         self.downloads.mkdir(parents=True, exist_ok=True)
-        target = self.downloads / f"DeskAtlas-Setup-{manifest.get('version', 'latest')}.exe"
+        suffix = ".deb" if IS_LINUX and not IS_WINDOWS else ".exe"
+        if not urlsplit(url).path.lower().endswith(suffix):
+            raise UpdateError("更新安装包与当前操作系统不匹配")
+        version = str(parse_version(manifest.get("version", "")))
+        name = f"DeskAtlas-{version}-Ubuntu-amd64.deb" if suffix == ".deb" else f"DeskAtlas-Setup-{version}.exe"
+        target = self.downloads / name
         if target.exists() and _sha256(target) == expected_hash:
             return target
         digest = hashlib.sha256()
@@ -198,7 +205,7 @@ class Updater:
             partial.unlink(missing_ok=True)
             raise UpdateError("安装包大小不符，已放弃更新")
         partial.replace(target)
-        for stale in self.downloads.glob("*.exe"):
+        for stale in self.downloads.glob(f"*{suffix}"):
             if stale != target:
                 stale.unlink(missing_ok=True)
         return target

@@ -6,6 +6,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
+from .program_levels import LEVEL_ALIASES
 
 HEADER_ALIASES = {
     "room": {"房间", "房间号", "办公室", "教室"},
@@ -29,10 +30,8 @@ def _header_key(value: Any) -> str:
 
 def normalize_level(value: Any) -> tuple[str | None, str | None]:
     text = str(value or "").strip()
-    if text in {"硕", "硕士", "硕士生"}:
-        return "硕士", None
-    if text in {"博", "博士", "博士生"}:
-        return "博士", None
+    if text in LEVEL_ALIASES:
+        return LEVEL_ALIASES[text], None
     if not text:
         return None, "培养层次缺失"
     return None, f"无法识别培养层次：{text}"

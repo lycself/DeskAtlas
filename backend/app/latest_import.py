@@ -6,7 +6,7 @@ import io
 from openpyxl import load_workbook
 from sqlalchemy import select
 
-from .importer import normalize_year
+from .importer import normalize_level, normalize_year
 from .models import Application, Assignment, AuditLog, Major, Room, Student, Teacher, utcnow
 from .office_import import surveyed_preview, apply_survey
 from .student_rules import ensure_virtual_rooms, place_unassigned, student_email
@@ -56,8 +56,11 @@ def latest_preview(roster: bytes, floorplan: bytes, directory: bytes, teachers: 
             continue
         adviser = get("导师姓名")
         centers = adviser_centers[adviser]
+        level, level_warning = normalize_level(get("培养层次"))
+        if get("培养层次") and level_warning:
+            raise ValueError(f"学生信息表{level_warning}")
         students.append(dict(student_no=get("学号"), name=get("姓名"), adviser=adviser or None,
-            enrollment_year=normalize_year(get("年级"))[0], program_level=get("培养层次"),
+            enrollment_year=normalize_year(get("年级"))[0], program_level=level,
             center=next(iter(centers)) if len(centers) == 1 else None))
     if len({s["student_no"] for s in students}) != len(students):
         raise ValueError("学生信息表中有重复学号")
@@ -77,6 +80,8 @@ def latest_preview(roster: bytes, floorplan: bytes, directory: bytes, teachers: 
                 candidates = [s for s in candidates if s["enrollment_year"] == row["enrollment_year"]]
             if len(candidates) == 1:
                 student = candidates[0]
+                if row["program_level"] == "硕转博" and student["program_level"] == "博士":
+                    student["program_level"] = "硕转博"
                 assigned_numbers.add(student["student_no"])
                 row["student_no"] = student["student_no"]
                 matched_rows[student["student_no"]].append(row)
