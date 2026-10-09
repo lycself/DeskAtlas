@@ -6,8 +6,30 @@ from sqlalchemy.orm import Session
 
 from backend.app.auditing import audit
 from backend.app.database import Base, build_engine
-from backend.app.migrations import head_revision, stamp, upgrade_database
+from backend.app.migrations import alembic_config, current_revision, head_revision, stamp, upgrade_database
 from backend.app.models import Assignment, AuditLog, Room, Seat, Student
+
+
+def test_alembic_config_preserves_encoded_windows_url():
+    url = "sqlite:///C%3A%5CUsers%5Crunneradmin%5CAppData%5CLocal%5CTemp%5Cexport.db"
+    config = alembic_config(url)
+    assert config.get_main_option("sqlalchemy.url") == url
+    assert config.attributes["database_url"] == url
+
+
+def test_stamp_and_upgrade_preserve_percent_signs_in_database_path(tmp_path):
+    path = tmp_path / "report%notes.db"
+    engine = build_engine(f"sqlite:///{path}")
+    try:
+        Base.metadata.create_all(engine)
+        url = engine.url.render_as_string(hide_password=False)
+        stamp(engine, url, "0005_note_sources")
+        assert current_revision(engine) == "0005_note_sources"
+        assert upgrade_database(engine, url) == head_revision()
+        assert current_revision(engine) == head_revision()
+        assert sorted(p.name for p in tmp_path.glob("*.db")) == [path.name]
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.parametrize("versioned", [True, False])

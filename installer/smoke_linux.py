@@ -9,6 +9,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -17,6 +18,10 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 from zipfile import ZipFile
 
 from PIL import ImageGrab
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from backend.app.program_levels import PROGRAM_LEVELS  # noqa: E402
 
 
 def main() -> int:
@@ -82,7 +87,7 @@ def main() -> int:
                 request("/api/setup/initialize", {"username": "smoke-admin", "password": "smoke-password-123"})
                 request("/api/admin/login", {"username": "smoke-admin", "password": "smoke-password-123"})
                 levels = json.loads(request("/api/admin/options"))["program_levels"]
-                assert levels == ["本科", "硕士", "博士", "博士后", "硕转博"]
+                assert levels == PROGRAM_LEVELS, f"Packaged program levels differ from source: {levels}"
                 for level in levels:
                     student = json.loads(request("/api/admin/students", {"name": "Smoke " + level, "program_level": level}))
                     assert student["program_level"] == level
@@ -90,7 +95,7 @@ def main() -> int:
                     config = package.read("config.env").decode()
                     assert "ADMIN_USERNAME" not in config and "ADMIN_PASSWORD_HASH" not in config
                 assert process.poll() is None
-                print("PASS: installed Ubuntu desktop window, static frontend, SQLite, five stages, credential-free backup")
+                print(f"PASS: installed Ubuntu desktop window, static frontend, SQLite, {len(levels)} stages, credential-free backup")
             except Exception:
                 log.seek(0)
                 print(log.read())

@@ -20,8 +20,9 @@ log = logging.getLogger(__name__)
 
 def alembic_config(database_url: str) -> Config:
     config = Config()
-    config.set_main_option("script_location", str(resource_root() / "backend" / "alembic"))
-    config.set_main_option("sqlalchemy.url", database_url)
+    config.set_main_option("script_location", str(resource_root() / "backend" / "alembic").replace("%", "%%"))
+    # Alembic's INI parser requires literal percent signs (including URL escapes) doubled.
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
     config.attributes["database_url"] = database_url
     return config
 
