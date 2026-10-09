@@ -49,7 +49,11 @@ def upgrade_database(engine: Engine, database_url: str) -> str:
         log.info("Running schema migrations")
         command.upgrade(alembic_config(database_url), "head")
     else:
-        # Fresh databases and legacy create_all() databases both match the current models.
+        # create_all adds missing tables, but cannot add columns to legacy tables.
         Base.metadata.create_all(engine)
-        stamp(engine, database_url, "head")
+        if tables:
+            stamp(engine, database_url, "0001_initial")
+            command.upgrade(alembic_config(database_url), "head")
+        else:
+            stamp(engine, database_url, "head")
     return current_revision(engine) or head_revision()

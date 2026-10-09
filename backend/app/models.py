@@ -90,6 +90,7 @@ class Seat(Base, TimestampMixin):
     code: Mapped[str] = mapped_column(String(40))
     admin_status: Mapped[str] = mapped_column(String(24), default="active", index=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    note_source: Mapped[str] = mapped_column(String(24), default="none", server_default="none")
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     room: Mapped[Room] = relationship(back_populates="seats")
@@ -132,6 +133,8 @@ class Student(Base, TimestampMixin):
     program_level: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     major_id: Mapped[int | None] = mapped_column(ForeignKey("majors.id", ondelete="SET NULL"), nullable=True)
     is_complete: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    note_source: Mapped[str] = mapped_column(String(24), default="none", server_default="none")
 
     major: Mapped[Major | None] = relationship()
     assignments: Mapped[list[Assignment]] = relationship(back_populates="student")

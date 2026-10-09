@@ -25,7 +25,7 @@ def repair_plan(db: Session, rows: list[dict]) -> dict:
     changes, conflicts = {}, []
     for row in rows:
         level = row.get("program_level")
-        if row.get("kind") != "student" or level not in {"本科", "博士后", "硕转博"}:
+        if row.get("kind") != "student" or level not in {"本科", "博士后", "硕转博", "科研助理", "联培"}:
             continue
         candidates = list(db.scalars(
             select(Student).join(Assignment).join(Seat).join(Room).where(
@@ -39,7 +39,8 @@ def repair_plan(db: Session, rows: list[dict]) -> dict:
         student = candidates[0]
         if student.program_level == level:
             continue
-        if student.program_level and not (level == "硕转博" and student.program_level == "博士"):
+        source_label_matches = level in {"科研助理", "联培"} and student.program_level == row.get("source_program_level")
+        if student.program_level and not ((level == "硕转博" and student.program_level == "博士") or source_label_matches):
             conflicts.append({"source_row": row["source_row"], "reason": "已有不同培养层次，需人工确认"})
             continue
         previous = changes.get(student.id)
@@ -61,7 +62,7 @@ def apply_plan(db: Session, plan: dict) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="按原始用房表补回本科、博士后和硕转博信息")
+    parser = argparse.ArgumentParser(description="按原始用房表补回本科、博士后、硕转博、科研助理和联培信息")
     parser.add_argument("--roster", type=Path, default=ROOT / "最新安排/研究生办公室用房信息汇总表(202609).xlsx")
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()

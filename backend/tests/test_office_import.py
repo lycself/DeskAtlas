@@ -122,6 +122,78 @@ def test_survey_failure_rolls_back_all_changes():
         assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
 
 
+def test_position_diagnostics_stay_in_audit_and_do_not_survive_map_corrections():
+    roster, plan = Workbook(), Workbook()
+    roster.active.append(["房间", "座位号", "姓名", "导师", "年级", "培养层次", "学生备注", "工位备注"])
+    roster.active.append(["431", 1, "测试人员", "测试导师", 2026, "硕", "休学", "设备检修"])
+    plan.active["A1"] = "431"
+    roster_data = workbook_bytes(roster)
+    old = surveyed_preview(roster_data, workbook_bytes(plan), map_ranges={"431": "A1:C3"})
+    assert old["rooms"]["431"]["missing"] == ["1"]
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        apply_survey(db, old)
+        db.commit()
+        room = db.scalar(select(Room).where(Room.name == "431"))
+        seat = room.seats[0]
+        assert seat.note == "设备检修"
+        assert seat.note_source == "import"
+        student = db.scalar(select(Student).where(Student.name == "测试人员"))
+        assert student.note == "休学" and student.note_source == "import"
+        assert room.description is None
+        log = db.scalar(select(AuditLog).where(AuditLog.target_id == old["fingerprint"]))
+        assert log.after_data["validation"][room.name]["missing"] == ["1"]
+        assert "分布图未提供唯一位置" in log.after_data["validation"][room.name]["warnings"][0]["warnings"]
+        assignments = [(a.id, a.student_id, a.seat_id) for a in db.scalars(select(Assignment))]
+        # A later source replaces its old remark, while manual room metadata stays intact.
+        room.description = "保留真实说明。"
+        db.commit()
+        plan.active["B2"] = 1
+        roster.active["G2"] = "已返校"
+        roster.active["H2"] = "设备检修已完成"
+        corrected = surveyed_preview(workbook_bytes(roster), workbook_bytes(plan), map_ranges={room.name: "A1:C3"})
+        assert corrected["rooms"][room.name]["missing"] == []
+        result = apply_survey(db, corrected)
+        db.commit()
+        assert seat.note == "设备检修已完成"
+        assert student.note == "已返校"
+        assert room.description == "保留真实说明。"
+        assert room.name not in result["validation"]
+        assert not any(item["type"] == "label" and "位置待核对" in item["label"] for item in room.published_layout)
+        assert assignments == [(a.id, a.student_id, a.seat_id) for a in db.scalars(select(Assignment))]
+        assert apply_survey(db, corrected)["already_imported"]
+        assert seat.note == "设备检修已完成"
+        # Removing an imported remark removes it, rather than accumulating older text.
+        roster.active["H2"] = None
+        removed = surveyed_preview(workbook_bytes(roster), workbook_bytes(plan), map_ranges={room.name: "A1:C3"})
+        apply_survey(db, removed)
+        db.commit()
+        assert seat.note is None
+        assert student.note == "已返校"
+        # A deliberate manual edit (including clearing the note) survives later imports.
+        seat.note, seat.note_source = "用户确认：设备检修完成", "manual"
+        student.note, student.note_source = "学生已返校核实", "manual"
+        db.commit()
+        roster.active["G2"] = "源表另有学生说明"
+        roster.active["H2"] = "源表另有工位说明"
+        later = surveyed_preview(workbook_bytes(roster), workbook_bytes(plan), map_ranges={room.name: "A1:C3"})
+        apply_survey(db, later, authoritative=True)
+        db.commit()
+        assert seat.note == "用户确认：设备检修完成"
+        assert student.note == "学生已返校核实"
+        seat.note = None
+        student.note = None
+        db.commit()
+        roster.active["G2"] = "源表再次更新"
+        latest = surveyed_preview(workbook_bytes(roster), workbook_bytes(plan), map_ranges={room.name: "A1:C3"})
+        apply_survey(db, latest)
+        db.commit()
+        assert seat.note is None and seat.note_source == "manual"
+        assert student.note is None and student.note_source == "manual"
+    engine.dispose()
+
+
 def test_shared_walls_thin_partition_and_map_only_seats():
     roster, plan = Workbook(), Workbook()
     roster.active.append(["房间", "座位号", "姓名"])

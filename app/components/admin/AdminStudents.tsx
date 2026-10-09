@@ -117,6 +117,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
           program_level: value(form.program_level),
           major_id: form.major_id ? Number(form.major_id) : null,
           seat_id: value(form.seat_id),
+          note: value(form.note),
         }),
       });
       setMessage("学生已录入");
@@ -137,6 +138,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
       enrollment_year: selected.enrollment_year ? String(selected.enrollment_year) : "",
       program_level: selected.program_level ?? "",
       major_id: selected.major_id ? String(selected.major_id) : "",
+      note: selected.note ?? "",
     });
   };
 
@@ -155,6 +157,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
           enrollment_year: editForm.enrollment_year ? Number(editForm.enrollment_year) : null,
           program_level: value(editForm.program_level),
           major_id: editForm.major_id ? Number(editForm.major_id) : null,
+          note: value(editForm.note),
         }),
       });
       setMessage("学生资料已更新");

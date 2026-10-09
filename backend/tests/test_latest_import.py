@@ -109,6 +109,27 @@ def test_latest_preview_preserves_undergraduate_postdoc_and_transfer_stage():
     assert [row["program_level"] for row in preview["rooms"]["301"]["rows"]] == ["硕转博", "本科", "博士后"]
 
 
+def test_latest_preview_uses_joint_training_label_from_room_roster():
+    directory = workbook_bytes([
+        ["学号", "姓名", "导师姓名", "年级", "培养层次"],
+        ["joint-1", "联培人员", "导师", "2026级", "博士"],
+    ])
+    teachers = workbook_bytes([["姓名", "职称", "中心职务", "教研中心"], ["导师", "教授", None, "光学"]])
+    roster = workbook_bytes([
+        ["房间", "座位号", "姓名", "导师", "年级", "培养层次", "备注"],
+        [301, 1, "联培人员", "导师", "2026级", "博", "联培（2025年9月-2027年2月）"],
+        [301, 2, "助理人员", "导师", None, None, "科研助理"],
+    ])
+    floorplan = Workbook()
+    floorplan.active["E2"] = 301
+    floorplan.active["B3"], floorplan.active["C3"] = 1, 2
+    stream = BytesIO()
+    floorplan.save(stream)
+    preview = latest_preview(roster, stream.getvalue(), directory, teachers)
+    assert preview["students"][0]["program_level"] == "联培"
+    assert [row["program_level"] for row in preview["rooms"]["301"]["rows"]] == ["联培", "科研助理"]
+
+
 def test_survey_wall_import_does_not_copy_adjacent_room_border():
     from openpyxl.styles import Border, Side
     from backend.app.office_import import surveyed_preview

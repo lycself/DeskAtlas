@@ -20,6 +20,7 @@ from scripts.repair_program_levels import apply_plan, repair_plan
 @pytest.mark.parametrize("source, expected", [
     ("本", "本科"), ("本科", "本科"), ("本科生", "本科"), ("硕", "硕士"), ("硕士生", "硕士"),
     ("博", "博士"), ("博士生", "博士"), ("博后", "博士后"), ("博士后", "博士后"), ("硕转博", "硕转博"),
+    ("科研助理", "科研助理"), ("联培", "联培"), ("出国联培", "联培"),
 ])
 def test_import_recognizes_source_stages(source, expected):
     assert normalize_level(source) == (expected, None)
@@ -28,6 +29,46 @@ def test_import_recognizes_source_stages(source, expected):
 def test_unknown_stage_remains_a_review_warning():
     assert normalize_level("未定义类别") == (None, "无法识别培养层次：未定义类别")
     assert normalize_level(None) == (None, "培养层次缺失")
+
+
+def test_note_stages_import_and_repair_without_overwriting_later_edits():
+    book = Workbook()
+    book.active.append(["房间", "座位号", "姓名", "导师", "培养层次", "备注"])
+    book.active.append(["note-room", "1", "助理人员", "导师", None, "科研助理"])
+    book.active.append(["note-room", "2", "联培人员", "导师", "博", "出国联培（2025年11月-2026年11月）"])
+    book.active.append(["note-room", "3", "已修改人员", "导师", "硕", "联培"])
+    book.active.append(["note-room", "4", "普通人员", "导师", "硕", "联培手续已取消"])
+    stream = BytesIO()
+    book.save(stream)
+    rows = preview_workbook(stream.getvalue())["rows"]
+    assert [row["program_level"] for row in rows] == ["科研助理", "联培", "联培", "硕士"]
+    assert not any("培养层次" in warning for row in rows for warning in row["warnings"])
+    assert rows[1]["source_note"] == "出国联培（2025年11月-2026年11月）"
+    assert rows[1]["note"] == "时间（2025年11月-2026年11月）"
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        room = Room(name="note-room")
+        db.add(room)
+        db.flush()
+        students = []
+        for row, level in zip(rows, [None, "博士", "博士后", "硕士"]):
+            student = Student(name=row["person_name"], adviser="导师", program_level=level)
+            seat = Seat(room_id=room.id, code=row["seat_code"])
+            db.add_all([student, seat])
+            db.flush()
+            db.add(Assignment(student_id=student.id, seat_id=seat.id))
+            students.append(student)
+        db.commit()
+        assignments = [(a.id, a.student_id, a.seat_id) for a in db.scalars(select(Assignment))]
+        plan = repair_plan(db, rows)
+        assert len(plan["changes"]) == 2 and len(plan["conflicts"]) == 1
+        apply_plan(db, plan)
+        db.commit()
+        assert [student.program_level for student in students] == ["科研助理", "联培", "博士后", "硕士"]
+        assert assignments == [(a.id, a.student_id, a.seat_id) for a in db.scalars(select(Assignment))]
+        assert not repair_plan(db, rows)["changes"]
+    engine.dispose()
 
 
 @pytest.mark.parametrize("level", PROGRAM_LEVELS)

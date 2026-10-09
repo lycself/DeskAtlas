@@ -9,10 +9,11 @@ export type StudentFormValues = {
   enrollment_year: string;
   program_level: string;
   major_id: string;
+  note: string;
 };
 
 export const emptyStudentForm: StudentFormValues = {
-  name: "", student_no: "", adviser: "", enrollment_year: "", program_level: "", major_id: "",
+  name: "", student_no: "", adviser: "", enrollment_year: "", program_level: "", major_id: "", note: "",
 };
 
 export function studentEmail(studentNo: string): string {
@@ -60,6 +61,7 @@ export function StudentFormFields({ form, onChange, options, required = false, a
         <label><span>教研中心</span><select required={required} value={form.major_id} onChange={(event) => onChange({ major_id: event.target.value })}>{blank}{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select></label>
       </div>
       <DerivedEmail studentNo={form.student_no} />
+      {!required && <label><span>学生备注</span><textarea rows={3} maxLength={1000} value={form.note} onChange={(event) => onChange({ note: event.target.value })} placeholder="记录休学、出国、离校等学生情况" /></label>}
     </>
   );
 }

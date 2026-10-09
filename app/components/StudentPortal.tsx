@@ -172,6 +172,7 @@ export function StudentPortal() {
       setForm({
         ...emptyStudentForm,
         program_level: data?.program_levels.includes("硕士") ? "硕士" : data?.program_levels[0] ?? "",
+        note: "",
         enrollment_year: String(data?.years.at(-2) ?? data?.years.at(-1) ?? ""),
         major_id: String(data?.majors[0]?.id ?? ""),
       });

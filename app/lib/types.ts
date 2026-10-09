@@ -85,6 +85,7 @@ export type Student = {
   major_id?: number | null;
   major?: string | null;
   is_complete: boolean;
+  note?: string | null;
   current_assignment?: {
     assignment_id: number;
     seat_id: string;

@@ -158,6 +158,7 @@ class DirectStudentCreate(BaseModel):
     program_level: ProgramLevel | None = None
     major_id: int | None = None
     seat_id: str | None = None
+    note: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="before")
     @classmethod
@@ -186,6 +187,7 @@ class StudentUpdate(BaseModel):
     enrollment_year: int | None = None
     program_level: ProgramLevel | None = None
     major_id: int | None = None
+    note: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="before")
     @classmethod

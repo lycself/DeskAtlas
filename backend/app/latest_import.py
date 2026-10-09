@@ -82,6 +82,8 @@ def latest_preview(roster: bytes, floorplan: bytes, directory: bytes, teachers: 
                 student = candidates[0]
                 if row["program_level"] == "硕转博" and student["program_level"] == "博士":
                     student["program_level"] = "硕转博"
+                if row["program_level"] in {"科研助理", "联培"}:
+                    student["program_level"] = row["program_level"]
                 assigned_numbers.add(student["student_no"])
                 row["student_no"] = student["student_no"]
                 matched_rows[student["student_no"]].append(row)
@@ -104,8 +106,8 @@ def latest_preview(roster: bytes, floorplan: bytes, directory: bytes, teachers: 
             assigned_numbers.remove(number)
         for row in rows:
             if f"{row['room_name']}/{row['seat_code']}" != chosen:
-                row.update(kind="empty", reserved=True,
-                    note=f"{row['person_name']}在最新表存在重复安排，原记录保留待核对；" + (row["note"] or ""))
+                row.update(kind="empty", reserved=True, note=None, student_note=None)
+                row["warnings"].append("最新表存在重复安排，原记录保留待核对")
     if seat_overrides:
         preview["fingerprint"] = hashlib.sha256((preview["fingerprint"] + repr(sorted(seat_overrides.items()))).encode()).hexdigest()
     preview.update(students=students, teachers=faculty, identity_warnings=warnings, assignment_conflicts=conflicts)

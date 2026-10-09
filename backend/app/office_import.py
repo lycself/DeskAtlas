@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from .importer import preview_workbook
 from .models import Assignment, AuditLog, Major, Room, Seat, Student, utcnow
+from .report_notes import row_notes, update_imported_student_note
 
 
 MAP_RANGES = {
@@ -54,7 +55,7 @@ def surveyed_preview(roster: bytes, floorplan: bytes, *, map_ranges: dict[str, s
             raise ValueError(f"汇总表第 {row['source_row']} 行缺少房间或座位号")
         if not row["person_name"]:
             row["warnings"] = []
-        note = row["note"] or ""
+        note = row.get("source_note") or row.get("source_student_note") or row.get("source_seat_note") or row["note"] or ""
         if not row["person_name"] and "打印机" in note:
             row.update(kind="equipment", person_name="打印机")
         if names[row["person_name"]] > 1 and row["kind"] == "student":
@@ -126,14 +127,14 @@ def surveyed_preview(roster: bytes, floorplan: bytes, *, map_ranges: dict[str, s
                 continue
             rows.append(dict(seat_code=code, room_name=name, kind="empty", person_name=None,
                              adviser=None, enrollment_year=None, program_level=None, major_name=None,
-                             source_row=None, note=f"工位分布图 {unique[code]['source_cell']}；汇总表未列，使用情况待核对",
-                             warnings=[], reserved=True, map_only=True))
+                             source_row=None, note=None, source_note=None,
+                             warnings=["汇总表未列，使用情况待核对"], reserved=True, map_only=True))
         for row in rows:
             row["location"] = unique.get(row["seat_code"])
             if row["seat_code"] in missing:
                 row["warnings"].append("分布图未提供唯一位置")
             row["reserved"] = (row.get("map_only", False) or row["kind"] == "empty" and (
-                any(token in (row["note"] or "") for token in ("备用间", "放物品", "个工位"))
+                any(token in (row.get("source_seat_note") or row.get("source_note") or row["note"] or "") for token in ("备用间", "放物品", "个工位"))
                 or bool(region and row["seat_code"] in missing)))
         result[name] = {"rows": rows, "doors": doors, "walls": list(walls.values()), "range": region,
                         "unresolved_positions": [dict(code=code, **location)
@@ -212,13 +213,8 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                 position = {"x": 48 + (fallback_index % 8) * 94,
                             "y": fallback_y + (fallback_index // 8) * 66}
                 fallback_index += 1
-            note = "；".join(filter(None, [row["note"],
-                f"汇总表第{row['source_row']}行" if row['source_row'] else None, *row["warnings"]]))
-            if row["kind"] == "empty":
-                note += "；" + "；".join(filter(None, [
-                    f"导师：{row['adviser']}" if row["adviser"] else None,
-                    f"教研中心：{row['major_name']}" if row["major_name"] else None,
-                ]))
+            # Validation belongs in the import audit, never in lasting report remarks.
+            student_note, note = row_notes(row)
             if row["kind"] == "equipment":
                 existing = seats.get(code)
                 if existing and (by_seat.get(existing.id) or any(a.status == "pending" for a in existing.applications)):
@@ -232,7 +228,7 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                 continue
             seat = seats.get(code)
             if seat is None:
-                seat = Seat(room_id=room.id, code=code, note=note,
+                seat = Seat(room_id=room.id, code=code, note=note, note_source="import",
                             admin_status="reserved" if row["reserved"] else "active")
                 db.add(seat)
                 db.flush()
@@ -241,8 +237,9 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                 if authoritative:
                     seat.is_archived = False
                     seat.admin_status = "reserved" if row["reserved"] else "active"
-                    seat.note = ""
-                seat.note = "；".join(filter(None, [seat.note, note]))
+                if seat.note_source != "manual":
+                    seat.note = note
+                    seat.note_source = "import"
                 if row["reserved"] and seat.admin_status == "active":
                     seat.admin_status = "reserved"
             layout.append(dict(id=seat.id, type="seat", label=code, x=position["x"],
@@ -253,9 +250,9 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                     conflict = {"room": name, "seat": code, "platform": assignment.student.name,
                                 "excel": row["person_name"]}
                     conflicts.append(conflict)
-                    seat.note += "；平台占用与Excel不一致，待核对"
                 else:
                     counts["matched_assignments"] += 1
+                    update_imported_student_note(assignment.student, row)
                     changes = fill_missing_student_fields(assignment.student, row)
                     if changes:
                         counts["updated_students"] += 1
@@ -279,7 +276,8 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                 db.add(student)
                 db.flush()
                 counts["created_students"] += 1
-            db.add(Assignment(student_id=student.id, seat_id=seat.id, source="survey", note=note))
+            update_imported_student_note(student, row)
+            db.add(Assignment(student_id=student.id, seat_id=seat.id, source="survey", note=student_note))
             counts["created_assignments"] += 1
         for i, position in enumerate(info["doors"]):
             layout.append(dict(id=f"survey-door-{room.id}-{i}", type="door", label="门",
@@ -298,21 +296,25 @@ def apply_survey(db: Session, preview: dict[str, Any], *, replace_conflicts: boo
                         seat.is_archived = True
                     else:
                         raise ValueError(f"平台房间 {name} 存在汇总表未列出的座位 {seat.code}")
-        description = "按实测工位分布图还原相对位置；间距为示意尺寸。" if info["range"] else "分布图未提供此房间；按座位号暂排，实际位置待核对。"
-        if info["missing"] and info["range"]:
-            description += " 未定位编号：" + "、".join(info["missing"]) + "。"
-        if info["duplicates"]:
-            description += " 图中重复编号：" + "、".join(info["duplicates"]) + "。"
-        if info["extra"]:
-            description += " 图有但汇总表未列编号：" + "、".join(info["extra"]) + "（唯一位置已补入，使用情况待核对）。"
-        room.description = description if authoritative else " ".join(filter(None, [room.description, description]))
         room.canvas_width = max(960, int(max(i["x"] + i["width"] for i in layout) + 48))
         room.canvas_height = max(620, int(max(i["y"] + i["height"] for i in layout) + 48))
         room.draft_layout = layout
         room.published_layout = copy.deepcopy(layout)
         room.is_published = True
         room.published_at = utcnow()
-    result = {"counts": dict(counts), "conflicts": conflicts, "summary": preview["summary"]}
+    validation = {name: {
+        "missing": info["missing"], "duplicates": info["duplicates"], "extra": info["extra"],
+        "warnings": [{"source_row": row["source_row"], "seat_code": row["seat_code"],
+                      "warnings": row["warnings"]} for row in info["rows"] if row["warnings"]],
+    } for name, info in preview["rooms"].items()
+        if info["missing"] or info["duplicates"] or info["extra"] or any(row["warnings"] for row in info["rows"])}
+    source_remarks = {name: [
+        {key: row.get(key) for key in ("source_row", "seat_code", "source_note", "source_student_note", "source_seat_note", "student_note", "seat_note")}
+        for row in info["rows"] if any(row.get(key) for key in ("source_note", "student_note", "seat_note", "note"))
+    ] for name, info in preview["rooms"].items()
+        if any(any(row.get(key) for key in ("source_note", "student_note", "seat_note", "note")) for row in info["rows"])}
+    result = {"counts": dict(counts), "conflicts": conflicts, "summary": preview["summary"],
+              "validation": validation, "source_remarks": source_remarks}
     db.add(AuditLog(action="survey.imported", target_type="import", target_id=fingerprint,
                     before_data={"replaced_assignments": before}, after_data=result))
     db.flush()

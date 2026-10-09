@@ -37,6 +37,15 @@ def listening(host: str, port: int) -> bool:
         return False
 
 
+def development_port(preferred: int, service: str) -> int:
+    for port in range(preferred, preferred + 100):
+        if not any(listening(host, port) for host in ("127.0.0.1", "::1")):
+            if port != preferred:
+                log(f"{service}默认端口 {preferred} 已被占用，改用 {port}。")
+            return port
+    raise RuntimeError(f"{service}未找到可用端口（{preferred}–{preferred + 99}）。")
+
+
 def local_postgres() -> tuple[str, Path]:
     """Locate the existing cluster; never initialize or replace user data."""
     configured_data = os.environ.get("DESKATLAS_PGDATA")
@@ -99,15 +108,17 @@ class Development:
             engine.dispose()
         log("数据库已就绪。")
 
-    def spawn(self, command: list[str]) -> subprocess.Popen:
-        child = subprocess.Popen(command, cwd=ROOT, start_new_session=True)
+    def spawn(self, command: list[str], *, env: dict[str, str] | None = None) -> subprocess.Popen:
+        child = subprocess.Popen(command, cwd=ROOT, start_new_session=True, env=env)
         self.children.append(child)
         return child
 
     def run(self) -> int:
-        for port in (3000, 8000):
-            if any(listening(host, port) for host in ("127.0.0.1", "::1")):
-                raise RuntimeError(f"端口 {port} 已被占用，请先关闭之前启动的项目。")
+        web_port = development_port(3000, "前端")
+        api_port = development_port(8000, "后端")
+        web_origin = f"http://localhost:{web_port}"
+        api_origin = f"http://127.0.0.1:{api_port}"
+        env = {**os.environ, "PUBLIC_ORIGIN": web_origin, "API_INTERNAL_URL": api_origin}
         self.prepare_database()
         if self.stopping.is_set():
             return 0
@@ -115,14 +126,14 @@ class Development:
         log("启动后端…")
         api = self.spawn([
             sys.executable, "-m", "uvicorn", "backend.app.main:app", "--reload",
-            "--host", "127.0.0.1", "--port", "8000",
-        ])
+            "--host", "127.0.0.1", "--port", str(api_port),
+        ], env=env)
         deadline = time.monotonic() + 30
         while not self.stopping.is_set():
             if api.poll() is not None or time.monotonic() >= deadline:
                 raise RuntimeError("后端未能启动，请查看上方错误。")
             try:
-                with urlopen("http://127.0.0.1:8000/health", timeout=1) as response:
+                with urlopen(f"{api_origin}/health", timeout=1) as response:
                     if response.status == 200:
                         break
             except (URLError, TimeoutError, OSError):
@@ -131,7 +142,8 @@ class Development:
         if self.stopping.is_set():
             return 0
 
-        self.spawn(["pnpm", "dev:web"])
+        self.spawn(["pnpm", "dev:web", "--port", str(web_port)], env=env)
+        log(f"学生端：{web_origin}；管理端：{web_origin}/admin/login")
         log("按 Ctrl+C 同时停止前端、后端和本次启动的数据库。")
         while not self.stopping.wait(0.2):
             for child in self.children:

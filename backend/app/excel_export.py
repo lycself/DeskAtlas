@@ -9,7 +9,7 @@ from unicodedata import east_asian_width
 from fastapi import APIRouter, Depends, Query, Response
 from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.orm import Session, defer, joinedload, selectinload
@@ -31,6 +31,8 @@ STATE_LABELS = {"available": "可申请", "occupied": "已占用", "pending": "�
 
 def add_sheet(book: Workbook, name: str, headers: list[str], rows: list[list], widths: list[int]) -> None:
     sheet = book.create_sheet(name)
+    border_side = Side(style="thin", color="000000")
+    border = Border(left=border_side, right=border_side, top=border_side, bottom=border_side)
     sheet.append(headers)
     for values in rows:
         sheet.append([ILLEGAL_CHARACTERS_RE.sub("", value) if isinstance(value, str) else value for value in values])
@@ -40,13 +42,12 @@ def add_sheet(book: Workbook, name: str, headers: list[str], rows: list[list], w
             if isinstance(cell.value, str):
                 cell.data_type = "s"
                 cell.number_format = "@"
-            cell.font = Font(name="Microsoft YaHei", size=11, color="253347")
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            cell.font = Font(name="Microsoft YaHei", size=11, color="000000")
+            cell.border = border
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             if cell.row == 1:
                 cell.font = Font(name="Microsoft YaHei", size=11, color="FFFFFF", bold=True)
                 cell.fill = PatternFill("solid", fgColor="24476B")
-            elif cell.row % 2 == 0:
-                cell.fill = PatternFill("solid", fgColor="F1F5F9")
         lines = max(sum(max(1, ceil(sum(2 if east_asian_width(character) in "WF" else 1
                                        for character in line) / width))
                         for line in str(cell.value or "").split("\n"))
@@ -93,11 +94,12 @@ def export_excel(db: Db, _: Admin, scope: Literal["all", "students"] = "all",
             student.program_level, student.adviser, student.major.name if student.major else None,
             room.name if room and room.is_virtual else "实际工位" if room else "未被分配",
             room.name if room else None,
-            "虚拟工位" if room and room.is_virtual else record.seat.code if record else None,
+            record.seat.code if record and room and not room.is_virtual and room.name not in {"未分配", "未被分配", "翔安"} else None,
             "完整" if student.is_complete else "待补全",
+            student.note,
         ])
-    add_sheet(book, "学生名册", ["学号", "姓名", "年级", "电子邮箱", "培养层次", "导师姓名", "教研中心", "工位分组", "房间", "座位号", "资料状态"],
-              student_rows, [24, 18, 12, 40, 14, 18, 24, 18, 18, 14, 14])
+    add_sheet(book, "学生名册", ["学号", "姓名", "年级", "电子邮箱", "培养层次", "导师姓名", "教研中心", "工位分组", "房间", "座位号", "资料状态", "学生备注"],
+              student_rows, [24, 18, 12, 40, 14, 18, 24, 18, 18, 14, 14, 40])
     counts = {"students": len(student_rows)}
     if scope == "all":
         rooms = db.scalars(select(Room).options(selectinload(Room.seats), defer(Room.draft_layout), defer(Room.published_layout))
@@ -117,7 +119,7 @@ def export_excel(db: Db, _: Admin, scope: Literal["all", "students"] = "all",
                     student.name if student else None, student.adviser if student else None,
                     f"{student.enrollment_year}级" if student and student.enrollment_year else None,
                     {"硕士": "硕", "博士": "博"}.get(student.program_level, student.program_level) if student else None,
-                    student.major.name if student and student.major else None, seat.note,
+                    student.major.name if student and student.major else None, student.note if student else None, seat.note,
                     student.student_no if student else None, student.email if student else None, STATE_LABELS[state],
                 ])
             room_rows.append([
@@ -125,8 +127,8 @@ def export_excel(db: Db, _: Admin, scope: Literal["all", "students"] = "all",
                 "已发布" if room.is_published else "未发布", sum(states.values()),
                 states["occupied"], states["available"], states["pending"], states["unavailable"], room.description,
             ])
-        add_sheet(book, "工位分配", ["序号", "房间", "座位号", "姓名", "导师", "年级（202X级）", "培养层次（硕/博）", "教研中心", "备注", "学号", "电子邮箱", "工位状态"],
-                  seat_rows, [10, 18, 14, 18, 18, 18, 20, 24, 40, 24, 40, 16])
+        add_sheet(book, "工位分配", ["序号", "房间", "座位号", "姓名", "导师", "年级（202X级）", "培养层次", "教研中心", "学生备注", "工位备注", "学号", "电子邮箱", "工位状态"],
+                  seat_rows, [10, 18, 14, 18, 18, 18, 20, 24, 40, 40, 24, 40, 16])
         add_sheet(book, "房间汇总", ["房间", "楼宇", "楼层", "教研中心", "发布状态", "工位总数", "已占用", "可申请", "待审批", "不可申请", "说明"],
                   room_rows, [18, 20, 14, 32, 14, 14, 12, 12, 12, 14, 40])
         counts.update(seats=len(seat_rows), rooms=len(room_rows))

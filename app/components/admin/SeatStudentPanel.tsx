@@ -74,7 +74,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
   const startEdit = () => {
     if (!student) return;
     setForm({ name: student.name, student_no: student.student_no ?? "", adviser: student.adviser ?? "",
-      enrollment_year: String(student.enrollment_year ?? ""), program_level: student.program_level ?? "", major_id: String(student.major_id ?? "") });
+      enrollment_year: String(student.enrollment_year ?? ""), program_level: student.program_level ?? "", major_id: String(student.major_id ?? ""), note: student.note ?? "" });
     setEditing(true);
   };
   const change = (patch: Partial<StudentFormValues>) => { setForm({ ...form, ...patch }); onDirty(true); };
@@ -82,7 +82,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
     event.preventDefault();
     const data = { name: form.name.trim(), student_no: form.student_no.trim() || null, adviser: form.adviser.trim() || null,
       enrollment_year: form.enrollment_year ? Number(form.enrollment_year) : null, program_level: form.program_level || null,
-      major_id: form.major_id ? Number(form.major_id) : null };
+      major_id: form.major_id ? Number(form.major_id) : null, note: form.note.trim() || null };
     void run(async () => {
       await api(creating ? "/api/admin/students" : `/api/admin/students/${student!.id}`, {
         method: creating ? "POST" : "PATCH", body: JSON.stringify(creating ? { ...data, seat_id: item!.seat!.id } : data),

@@ -6,7 +6,8 @@ from typing import Any
 
 from openpyxl import load_workbook
 
-from .program_levels import LEVEL_ALIASES
+from .program_levels import LEVEL_ALIASES, level_from_note
+from .report_notes import import_note
 
 HEADER_ALIASES = {
     "room": {"房间", "房间号", "办公室", "教室"},
@@ -17,6 +18,8 @@ HEADER_ALIASES = {
     "level": {"培养层次（硕/博）", "培养层次", "学历层次"},
     "major": {"专业", "教研中心", "方向"},
     "note": {"备注", "说明"},
+    "student_note": {"学生备注", "学生状态备注"},
+    "seat_note": {"工位备注", "座位备注"},
 }
 
 
@@ -75,6 +78,15 @@ def preview_workbook(content: bytes) -> dict[str, Any]:
 
         warnings: list[str] = []
         level, level_warning = normalize_level(value("level"))
+        source_level = level
+        note = str(value("note") or "").strip() or None
+        equipment = any(token in name.lower() for token in ("打印机", "柜", "设备", "服务器"))
+        kind = "equipment" if equipment else "student" if name else "empty"
+        source_student_note = (str(value("student_note") or "").strip() or None) if "student_note" in indices else note if kind == "student" else None
+        source_seat_note = (str(value("seat_note") or "").strip() or None) if "seat_note" in indices else note if kind != "student" else None
+        note_level = level_from_note(source_student_note)
+        if note_level:
+            level, level_warning = note_level, None
         year, year_warning = normalize_year(value("year"))
         if level_warning:
             warnings.append(level_warning)
@@ -85,11 +97,6 @@ def preview_workbook(content: bytes) -> dict[str, Any]:
         if not seat:
             warnings.append("座位号缺失")
 
-        lower_name = name.lower()
-        equipment = any(token in lower_name for token in ("打印机", "柜", "设备", "服务器"))
-        kind = "equipment" if equipment else "student"
-        if kind == "student" and not name:
-            kind = "empty"
         if equipment:
             warnings = [warning for warning in warnings if "培养层次" not in warning and "年级" not in warning]
             warnings.append("识别为设备，请确认")
@@ -103,9 +110,16 @@ def preview_workbook(content: bytes) -> dict[str, Any]:
                 "adviser": str(value("adviser") or "").strip() or None,
                 "enrollment_year": year,
                 "program_level": level,
+                "source_program_level": source_level,
                 "major_name": str(value("major") or "").strip() or None,
-                "note": str(value("note") or "").strip() or None,
+                "note": import_note(note, level),
+                "source_note": note,
+                "student_note": import_note(source_student_note, level),
+                "seat_note": import_note(source_seat_note, None),
+                "source_student_note": source_student_note,
+                "source_seat_note": source_seat_note,
                 "kind": kind,
+                "reserved": kind == "empty" and any(token in (source_seat_note or "") for token in ("备用间", "放物品", "个工位")),
                 "warnings": warnings,
             }
         )

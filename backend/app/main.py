@@ -19,6 +19,7 @@ from .excel_export import router as excel_export_router
 from .config import get_settings
 from .database import SessionLocal, engine, get_db
 from .importer import preview_workbook
+from .report_notes import row_notes, update_imported_student_note
 from .layout_utils import repair_imported_equipment
 from .mailer import create_delivery, deliver, encrypt_secret
 from .migrations import upgrade_database
@@ -313,6 +314,7 @@ def serialize_student(db: Session, student: Student, *, records: list[Assignment
         "major_id": student.major_id,
         "major": student.major.name if student.major else None,
         "is_complete": student.is_complete,
+        "note": student.note,
         "current_assignment": {
             "assignment_id": current.id,
             "seat_id": current.seat_id,
@@ -796,10 +798,13 @@ def update_seat_status(seat_id: str, payload: SeatStatusUpdate, db: Db, _: Admin
         raise HTTPException(status_code=404, detail="工位不存在")
     if payload.status != "active" and (active_assignment_for_seat(db, seat.id) or pending_application_for_seat(db, seat.id)):
         raise HTTPException(status_code=409, detail="有占用或申请的工位不能直接停用")
-    before = {"status": seat.admin_status, "note": seat.note}
+    before = {"status": seat.admin_status, "note": seat.note, "note_source": seat.note_source}
     seat.admin_status = payload.status
-    seat.note = payload.note
-    audit(db, "seat.status_updated", "seat", seat.id, before, payload.model_dump())
+    if "note" in payload.model_fields_set:
+        if payload.note != seat.note or seat.note_source == "none":
+            seat.note_source = "manual"
+        seat.note = payload.note
+    audit(db, "seat.status_updated", "seat", seat.id, before, payload.model_dump(exclude_unset=True))
     db.commit()
     return seat_public_data(db, seat)
 
@@ -983,6 +988,8 @@ def create_student(payload: DirectStudentCreate, db: Db, _: Admin) -> dict[str, 
     if data.get("email") is not None:
         data["email"] = str(data["email"])
     student = Student(**data)
+    if "note" in payload.model_fields_set:
+        student.note_source = "manual"
     student.is_complete = student_is_complete(student)
     db.add(student)
     db.flush()
@@ -1015,6 +1022,9 @@ def update_student(student_id: int, payload: StudentUpdate, db: Db, _: Admin) ->
     values = payload.model_dump(exclude_unset=True)
     values["email"] = student_email(values.get("student_no", student.student_no))
     before = {key: getattr(student, key) for key in values}
+    if "note" in values and (values["note"] != student.note or student.note_source == "none"):
+        values["note_source"] = "manual"
+        before["note_source"] = student.note_source
     for key, value in values.items():
         setattr(student, key, value)
     student.is_complete = student_is_complete(student)
@@ -1325,8 +1335,10 @@ def import_commit(payload: ImportCommit, db: Db, _: Admin) -> dict[str, Any]:
                 counts["skipped"] += 1
                 continue
             seat = db.scalar(select(Seat).where(Seat.room_id == room.id, Seat.code == seat_code))
+            student_note, seat_note = row_notes(row)
             if not seat:
-                seat = Seat(room_id=room.id, code=seat_code)
+                seat = Seat(room_id=room.id, code=seat_code, note=seat_note, note_source="import",
+                            admin_status="reserved" if row.get("reserved") else "active")
                 db.add(seat)
                 db.flush()
                 counts["created_seats"] += 1
@@ -1346,9 +1358,16 @@ def import_commit(payload: ImportCommit, db: Db, _: Admin) -> dict[str, Any]:
                 )
 
             person_name = str(row.get("person_name") or "").strip()
+            assignment = active_assignment_for_seat(db, seat.id)
+            same_occupant = assignment and assignment.student.name == person_name and assignment.student.adviser == row.get("adviser")
+            if seat.note_source != "manual" and (assignment is None or same_occupant):
+                seat.note = seat_note
+                seat.note_source = "import"
             if not person_name or row.get("kind") == "empty":
                 continue
-            if active_assignment_for_seat(db, seat.id):
+            if assignment:
+                if same_occupant:
+                    update_imported_student_note(assignment.student, row)
                 counts["skipped"] += 1
                 continue
             major = None
@@ -1366,10 +1385,11 @@ def import_commit(payload: ImportCommit, db: Db, _: Admin) -> dict[str, Any]:
                 program_level=row.get("program_level"),
                 major_id=major.id if major else None,
                 is_complete=False,
+                note=student_note, note_source="import",
             )
             db.add(student)
             db.flush()
-            db.add(Assignment(student_id=student.id, seat_id=seat.id, source="import", note=row.get("note")))
+            db.add(Assignment(student_id=student.id, seat_id=seat.id, source="import", note=student_note))
             counts["created_students"] += 1
             counts["created_assignments"] += 1
 
@@ -1381,7 +1401,13 @@ def import_commit(payload: ImportCommit, db: Db, _: Admin) -> dict[str, Any]:
                 room.published_layout = copy.deepcopy(repaired)
                 room.is_published = True
                 room.published_at = utcnow()
-        audit(db, "import.committed", "import", None, after=dict(counts))
+        audit(db, "import.committed", "import", None, after={**dict(counts), "source_remarks": [
+            {key: row.get(key) for key in ("source_row", "room_name", "seat_code", "source_note", "source_student_note", "source_seat_note", "student_note", "seat_note")}
+            for row in payload.rows if any(row.get(key) for key in ("source_note", "student_note", "seat_note"))
+        ], "validation": [
+            {key: row.get(key) for key in ("source_row", "room_name", "seat_code", "warnings")}
+            for row in payload.rows if row.get("warnings")
+        ]})
         db.commit()
     except Exception:
         db.rollback()
