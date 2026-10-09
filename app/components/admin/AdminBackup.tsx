@@ -107,7 +107,7 @@ export function AdminBackup({ active }: { active: boolean }) {
           {directory && <div><dt>备份目录</dt><dd><code>{directory}</code></dd></div>}
         </dl>}
         <div className="seat-table-wrap">
-          <table className="data-table">
+          <table className="data-table backup-table">
             <thead><tr><th>备份</th><th>时间</th><th>大小</th><th /></tr></thead>
             <tbody>
               {items.length === 0 && <tr><td colSpan={4} className="empty-cell">备份目录里还没有备份。桌面版会每天自动备份一次。</td></tr>}
@@ -115,7 +115,7 @@ export function AdminBackup({ active }: { active: boolean }) {
                 <td><code>{item.name}</code></td>
                 <td>{new Date(item.created_at).toLocaleString("zh-CN")}</td>
                 <td>{formatSize(item.size)}</td>
-                <td className="row-actions"><a className="row-action" href={`/api/admin/backup/file/${encodeURIComponent(item.name)}`} download>下载</a><button className="row-action danger" disabled={!!busy} onClick={() => remove(item.name)}><Trash2 size={13} />删除</button></td>
+                <td><div className="row-actions"><a className="row-action" href={`/api/admin/backup/file/${encodeURIComponent(item.name)}`} download>下载</a><button className="row-action danger" disabled={!!busy} onClick={() => remove(item.name)}><Trash2 size={13} />删除</button></div></td>
               </tr>)}
             </tbody>
           </table>

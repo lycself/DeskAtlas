@@ -184,7 +184,7 @@ export function PanelApp() {
             <label className="panel-field"><span>更新源地址</span><input placeholder="https://…/latest.json" value={form.update_url} onChange={(event) => setForm({ ...form, update_url: event.target.value })} /></label>
             <label className="panel-field"><span>GitHub 更新 token（私有仓库）</span><input type="password" autoComplete="off" maxLength={500} disabled={!!busy || clearUpdateToken} placeholder={form.update_token_configured ? "已配置，留空保留现有 token" : "填写具有仓库 Contents 读取权限的 token"} value={updateToken} onChange={(event) => setUpdateToken(event.target.value)} /></label>
             <p className="panel-notice">仅用于官方 GitHub 仓库更新，token 加密保存在本机。选择 DeskAtlas 仓库并授予 Contents 读取权限，保存后点击“检查更新”。</p>
-            {form.update_token_configured && <label><input type="checkbox" disabled={!!busy} checked={clearUpdateToken} onChange={(event) => setClearUpdateToken(event.target.checked)} /> 清除已保存的 token（保存后生效）</label>}
+            {form.update_token_configured && <label className="check-control"><input type="checkbox" disabled={!!busy} checked={clearUpdateToken} onChange={(event) => setClearUpdateToken(event.target.checked)} /> 清除已保存的 token（保存后生效）</label>}
             <button className="primary-action compact" disabled={!state?.available || !!busy}>{busy === "save" ? "正在保存…" : "保存设置"}</button>
           </form>
         </>}

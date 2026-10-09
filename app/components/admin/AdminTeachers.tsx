@@ -72,7 +72,7 @@ export function AdminTeachers({ majors, active }: { majors: Major[]; active: boo
     </form>}
     <div className="student-tools">
       <label><span>筛选教研中心</span><select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="">全部教研中心</option>{majors.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
-      <input aria-label="搜索教师姓名" placeholder="搜索教师姓名" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <label><span>搜索教师姓名</span><input aria-label="搜索教师姓名" placeholder="搜索教师姓名" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
       <span>{loading ? "正在加载…" : `${rows.length} 位教师`}</span>
     </div>
     <div className="seat-table-wrap"><table className="data-table"><thead><tr><th>教师</th><th>教研中心</th><th>职称</th><th>中心职务</th><th>状态</th><th /></tr></thead>

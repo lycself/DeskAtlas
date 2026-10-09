@@ -974,7 +974,7 @@ def resolve_destination(db: Session, student: Student, destination: str) -> Seat
         if name not in VIRTUAL_ROOMS:
             raise HTTPException(status_code=422, detail="虚拟工位不存在")
         return virtual_seat(db, student, name)
-    seat = db.scalar(select(Seat).options(joinedload(Seat.room)).where(Seat.id == destination).with_for_update())
+    seat = db.scalar(select(Seat).options(joinedload(Seat.room)).where(Seat.id == destination).with_for_update(of=Seat))
     if seat and seat.room.is_virtual:
         raise HTTPException(status_code=422, detail="请选择虚拟分组，不要使用个人虚拟编号")
     return seat
@@ -1047,7 +1047,7 @@ def move_student(student_id: int, payload: MoveStudent, db: Db, _: Admin) -> dic
         select(Assignment)
         .options(joinedload(Assignment.seat).joinedload(Seat.room))
         .where(Assignment.student_id == student.id, Assignment.ended_at.is_(None))
-        .with_for_update()
+        .with_for_update(of=Assignment)
     )
     target = resolve_destination(db, student, payload.seat_id)
     if not target:
