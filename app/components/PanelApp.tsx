@@ -123,7 +123,7 @@ export function PanelApp() {
       {state && !state.available && <p className="panel-notice">当前由开发服务器运行，没有托盘程序。桌面版会在这里显示设置和更新。</p>}
       {state?.server_error && <p className="form-error"><CircleAlert size={16} />{state.server_error}</p>}
 
-      <section className="panel-card glass-surface">
+      <section className="panel-card card-surface">
         <h2>学生访问地址</h2>
         <p>把下面的地址发给学生，或让他们扫码打开工位地图。电脑联网方式改变时地址会自动更新。</p>
         {state?.addresses.length === 0 && <p className="panel-notice">没有检测到局域网地址，请确认电脑已连接校园网。</p>}
@@ -149,7 +149,7 @@ export function PanelApp() {
         </div>
       </section>
 
-      <section className="panel-card glass-surface">
+      <section className="panel-card card-surface">
         <h2>备份</h2>
         <p>{state?.last_backup ? `最近一次备份：${new Date(state.last_backup).toLocaleString("zh-CN")}` : "还没有备份。"}{state?.backup_dir && <><br /><code>{state.backup_dir}</code></>}</p>
         <div className="panel-buttons">
@@ -160,7 +160,7 @@ export function PanelApp() {
         </div>
       </section>
 
-      <section className="panel-card glass-surface">
+      <section className="panel-card card-surface">
         <h2>运行设置</h2>
         {!form && <p>桌面版运行时，可在这里修改服务端口、开机自启动、防睡眠和自动备份；开发模式下没有这些设置。</p>}
         {form && <>
@@ -191,7 +191,7 @@ export function PanelApp() {
         </>}
       </section>
 
-      <section className="panel-card glass-surface">
+      <section className="panel-card card-surface">
         <h2>软件更新</h2>
         <p>
           当前版本 {state?.version ?? "…"}。{state?.update ? updateLabels[state.update.status] ?? state.update.status : ""}

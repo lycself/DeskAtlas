@@ -90,7 +90,7 @@ export function AdminLogin() {
           <ThemeToggle />
         </div>
       </header>
-      <section className="login-panel glass-surface">
+      <section className="login-panel card-surface">
         {mode === "loading" && <p className="form-hint">正在检查系统状态…</p>}
         {mode === "login" && <>
           <span className="login-symbol"><KeyRound /></span>

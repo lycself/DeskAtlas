@@ -188,7 +188,7 @@ export function AdminPortal() {
       </div>
       <aside className={`admin-sidebar glass-surface ${navOpen ? "open" : ""}`}>
         <button className="sidebar-edge-toggle" aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} aria-expanded={!sidebarCollapsed} onClick={toggleSidebar}>
-          {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
         <div className="admin-brand"><span>管理端</span><button className="sidebar-mobile-close icon-button" aria-label="关闭导航" onClick={() => setNavOpen(false)}><X /></button></div>
         <nav aria-label="管理端导航">
