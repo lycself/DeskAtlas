@@ -3,6 +3,8 @@
 import { Check, CircleAlert, Inbox, Mail, RefreshCw, X } from "lucide-react";
 import { FormEvent, useEffect, useEffectEvent, useMemo, useState } from "react";
 
+import { confirmDialog } from "@/app/components/ConfirmDialog";
+import { Select } from "@/app/components/Select";
 import { api } from "@/app/lib/api";
 import type { AdminJump, Application, Bootstrap, Room } from "@/app/lib/types";
 import { RoomPlan } from "../RoomPlan";
@@ -76,9 +78,9 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
     if (!selected || !form) return;
     const seat = `${selected.seat.room_name} · 工位 ${selected.seat.code}`;
     const question = action === "approve"
-      ? `同意 ${form.name} 的申请，并把 ${seat} 分配给该学生？结果会通过邮件通知。`
-      : `拒绝 ${form.name} 对 ${seat} 的申请？${reason.trim() ? "拒绝原因会随邮件发送给学生。" : "没有填写拒绝原因，邮件中将不包含原因。"}`;
-    if (!window.confirm(question)) return;
+      ? { title: `同意 ${form.name} 的申请？`, body: `${seat} 将分配给该学生，结果会通过邮件通知。`, confirmLabel: "同意并分配" }
+      : { title: `拒绝 ${form.name} 的申请？`, body: `申请的工位：${seat}。${reason.trim() ? "拒绝原因会随邮件发送给学生。" : "没有填写拒绝原因，邮件中将不包含原因。"}`, confirmLabel: "拒绝申请", danger: true };
+    if (!await confirmDialog(question)) return;
     setBusy(true); setError(""); setResult("");
     try {
       const response = await api<{ status: string; email_status: string }>(`/api/admin/applications/${selected.id}/review`, {
@@ -127,9 +129,9 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
                 </div>
                 <label><span>导师全名</span><input value={form.adviser} onChange={(e) => setForm({ ...form, adviser: e.target.value })} />{originalHint("adviser", form.adviser)}</label>
                 <div className="field-grid three">
-                  <label><span>年级</span><select value={form.enrollment_year} onChange={(e) => setForm({ ...form, enrollment_year: e.target.value })}>{options?.years.map((year) => <option key={year}>{year}</option>)}</select>{originalHint("enrollment_year", form.enrollment_year)}</label>
-                  <label><span>培养层次</span><select value={form.program_level} onChange={(e) => setForm({ ...form, program_level: e.target.value })}>{options?.program_levels.map((level) => <option key={level}>{level}</option>)}</select>{originalHint("program_level", form.program_level)}</label>
-                  <label><span>教研中心</span><select value={form.major_id} onChange={(e) => setForm({ ...form, major_id: e.target.value })}>{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select>{originalHint("major_id", form.major_id, (value) => options?.majors.find((major) => String(major.id) === value)?.name)}</label>
+                  <label><span>年级</span><Select value={String(form.enrollment_year)} onChange={(value) => setForm({ ...form, enrollment_year: value })} options={(options?.years ?? []).map((year) => ({ value: String(year), label: String(year) }))} />{originalHint("enrollment_year", form.enrollment_year)}</label>
+                  <label><span>培养层次</span><Select value={form.program_level} onChange={(value) => setForm({ ...form, program_level: value })} options={(options?.program_levels ?? []).map((level) => ({ value: level, label: level }))} />{originalHint("program_level", form.program_level)}</label>
+                  <label><span>教研中心</span><Select value={String(form.major_id)} onChange={(value) => setForm({ ...form, major_id: value })} options={(options?.majors ?? []).map((major) => ({ value: String(major.id), label: major.name }))} />{originalHint("major_id", form.major_id, (value) => options?.majors.find((major) => String(major.id) === value)?.name)}</label>
                 </div>
                 <DerivedEmail studentNo={form.student_no} />
                 <label><span>拒绝原因（可留空）</span><textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="填写后会随结果邮件发送给学生" /></label>

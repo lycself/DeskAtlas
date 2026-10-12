@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 
+import { Select } from "@/app/components/Select";
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
 import type { Bootstrap, LayoutItem, Room, SeatState } from "@/app/lib/types";
@@ -35,6 +36,8 @@ const labels: Record<SeatState, string> = {
 };
 
 const ROOM_PARAM = "room";
+const VIEW_PARAM = "view";
+const MAJOR_PARAM = "major";
 
 function roomIdFromUrl(): number | null {
   const value = Number(new URLSearchParams(window.location.search).get(ROOM_PARAM));
@@ -52,10 +55,11 @@ function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorC
   return (
     <aside className="room-picker" aria-label="选择房间">
       <div className="directory-heading"><Building2 size={17} /><strong>房间列表</strong><span>{rooms.length}</span></div>
-      <label className="major-filter"><span>教研中心</span><select aria-label="按教研中心筛选房间" value={majorFilter} onChange={(event) => onMajorChange(event.target.value)}>
-        <option value="">全部教研中心</option>
-        {[...new Set(allRooms.flatMap((room) => room.major_names ?? []))].sort((a, b) => a.localeCompare(b, "zh-CN")).map((major) => <option key={major} value={major}>{major}（{allRooms.filter((room) => room.major_names?.includes(major)).length}）</option>)}
-      </select></label>
+      <label className="major-filter"><span>教研中心</span><Select aria-label="按教研中心筛选房间" value={majorFilter} onChange={onMajorChange} options={[
+        { value: "", label: "全部教研中心" },
+        ...[...new Set(allRooms.flatMap((room) => room.major_names ?? []))].sort((a, b) => a.localeCompare(b, "zh-CN"))
+          .map((major) => ({ value: major, label: `${major}（${allRooms.filter((room) => room.major_names?.includes(major)).length}）` })),
+      ]} /></label>
       <section className="picker-row">
         <h2>楼层</h2>
         <div className="floor-strip" role="group" aria-label="楼层列表">
@@ -117,6 +121,7 @@ export function StudentPortal() {
       const next = await api<Bootstrap>("/api/public/bootstrap");
       const ordered = { ...next, rooms: sortRooms(next.rooms) };
       setData(ordered);
+      setMajorFilter((current) => ordered.rooms.some((room) => room.major_names?.includes(current)) ? current : "");
       setSelectedRoomId((current) => {
         const wanted = current ?? roomIdFromUrl();
         return ordered.rooms.some((room) => room.id === wanted) ? wanted : ordered.rooms[0]?.id ?? null;
@@ -129,17 +134,26 @@ export function StudentPortal() {
   };
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get(VIEW_PARAM) === "list") setView("list");
+    setMajorFilter(params.get(MAJOR_PARAM) ?? "");
     void load();
   }, []);
 
-  // Keep the chosen room in the address bar so a link can point at a specific room.
+  // Keep the room, view and centre filter in the address bar, so a reload or a shared link
+  // opens the same page. A centre no room belongs to is dropped once the rooms load.
   useEffect(() => {
     if (selectedRoomId === null) return;
     const url = new URL(window.location.href);
-    if (url.searchParams.get(ROOM_PARAM) === String(selectedRoomId)) return;
-    url.searchParams.set(ROOM_PARAM, String(selectedRoomId));
-    window.history.replaceState(null, "", url);
-  }, [selectedRoomId]);
+    const wanted: Array<[string, string]> = [[ROOM_PARAM, String(selectedRoomId)], [VIEW_PARAM, view === "list" ? "list" : ""], [MAJOR_PARAM, majorFilter]];
+    let changed = false;
+    for (const [key, value] of wanted) {
+      if ((url.searchParams.get(key) ?? "") === value) continue;
+      if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
+      changed = true;
+    }
+    if (changed) window.history.replaceState(null, "", url);
+  }, [selectedRoomId, view, majorFilter]);
 
   const selectedRoom = data?.rooms.find((room) => room.id === selectedRoomId);
   const filteredRooms = (data?.rooms ?? []).filter((room) => !majorFilter || room.major_names?.includes(majorFilter));
@@ -265,7 +279,7 @@ export function StudentPortal() {
                 </div>
               ) : (
                 <div className="seat-table-wrap">
-                  <table className="data-table public-seat-table">
+                  <table className="data-table public-seat-table sticky-first-col">
                     <thead><tr><th>{selectedRoom.is_virtual ? "虚拟位置" : "工位"}</th><th>状态</th><th>使用人</th><th>导师</th><th>教研中心</th><th /></tr></thead>
                     <tbody>
                       {seats.map((item) => {

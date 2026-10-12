@@ -3,6 +3,7 @@
 import { Armchair, CircleAlert, DoorOpen, GraduationCap, Inbox, RefreshCw, Search, UserRound, Users, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
+import { useModalLayer } from "@/app/hooks/useModalLayer";
 import { api } from "@/app/lib/api";
 import type { AdminJump, AdminSearchResults, SeatState } from "@/app/lib/types";
 
@@ -36,15 +37,8 @@ export function CommandPalette({ pages, onNavigate, onJump, onClose }: {
   // Enter pressed before the latest keystroke's results arrived opens the first fresh result instead of a stale one.
   const enterWhenReady = useRef(false);
   const list = useRef<HTMLDivElement>(null);
-  const close = useRef(onClose);
-  useEffect(() => { close.current = onClose; }, [onClose]);
-
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = overflow; previous?.focus(); };
-  }, []);
+  const panel = useRef<HTMLDivElement>(null);
+  useModalLayer(panel, onClose, { focusPanel: false });
 
   const query = term.trim();
   useEffect(() => {
@@ -144,9 +138,6 @@ export function CommandPalette({ pages, onNavigate, onJump, onClose }: {
       event.preventDefault();
       if (fresh || error) entries[active]?.run();
       else enterWhenReady.current = true;
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      close.current();
     } else if (event.key === "Tab") {
       // The input is the only focus stop; options are reached with the arrow keys.
       event.preventDefault();
@@ -158,7 +149,7 @@ export function CommandPalette({ pages, onNavigate, onJump, onClose }: {
 
   return (
     <div className="command-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="command-palette" role="dialog" aria-modal="true" aria-label="全局搜索">
+      <div className="command-palette" role="dialog" aria-modal="true" aria-label="全局搜索" ref={panel}>
         <label className="command-input">
           {waiting ? <RefreshCw className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
           <input

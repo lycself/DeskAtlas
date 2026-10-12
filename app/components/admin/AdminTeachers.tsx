@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
+import { Notice } from "@/app/components/Notice";
+import { Select } from "@/app/components/Select";
 import { api } from "@/app/lib/api";
 import type { Major } from "@/app/lib/types";
 
@@ -53,13 +55,13 @@ export function AdminTeachers({ majors, active }: { majors: Major[]; active: boo
   return <section className="flat-section teacher-settings" hidden={!active}>
     <header><div><h2>教研组教师</h2><p>维护教师所属教研中心、职称和中心职务。停用教师会保留历史资料。</p></div><button className="secondary-action compact" disabled={busy || showForm} onClick={() => { setEditing(null); setDraft(empty); setShowForm(true); setMessage(""); }}><Plus size={16} />添加教师</button></header>
     {error && <p className="form-error" role="alert">{error}</p>}
-    {message && <p className="success-banner" role="status">{message}</p>}
+    <Notice message={message} onClearMessage={() => setMessage("")} />
     {showForm && <form ref={form} onSubmit={save}>
       <fieldset disabled={busy}>
         <h3>{editing ? "编辑教师" : "添加教师"}</h3>
         <div className="field-grid two">
           <label><span>姓名</span><input required maxLength={80} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-          <label><span>教研中心</span><select required value={draft.major_id || ""} onChange={(e) => setDraft({ ...draft, major_id: Number(e.target.value) })}><option value="">请选择教研中心</option>{majors.map((m) => <option key={m.id} value={m.id}>{m.name}{m.is_active ? "" : "（已停用）"}</option>)}</select></label>
+          <label><span>教研中心</span><Select required value={draft.major_id ? String(draft.major_id) : ""} onChange={(value) => setDraft({ ...draft, major_id: Number(value) })} placeholder="请选择教研中心" options={majors.map((m) => ({ value: String(m.id), label: `${m.name}${m.is_active ? "" : "（已停用）"}` }))} /></label>
           <label><span>职称</span><input maxLength={80} value={draft.title ?? ""} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label>
           <label><span>中心职务</span><input maxLength={120} value={draft.role ?? ""} onChange={(e) => setDraft({ ...draft, role: e.target.value })} /></label>
         </div>
@@ -71,11 +73,11 @@ export function AdminTeachers({ majors, active }: { majors: Major[]; active: boo
       </fieldset>
     </form>}
     <div className="student-tools">
-      <label><span>筛选教研中心</span><select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="">全部教研中心</option>{majors.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+      <label><span>筛选教研中心</span><Select value={filter} onChange={setFilter} options={[{ value: "", label: "全部教研中心" }, ...majors.map((m) => ({ value: String(m.id), label: m.name }))]} /></label>
       <label><span>搜索教师姓名</span><input aria-label="搜索教师姓名" placeholder="搜索教师姓名" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
       <span>{loading ? "正在加载…" : `${rows.length} 位教师`}</span>
     </div>
-    <div className="seat-table-wrap"><table className="data-table"><thead><tr><th>教师</th><th>教研中心</th><th>职称</th><th>中心职务</th><th>状态</th><th /></tr></thead>
+    <div className="seat-table-wrap"><table className="data-table sticky-first-col"><thead><tr><th>教师</th><th>教研中心</th><th>职称</th><th>中心职务</th><th>状态</th><th /></tr></thead>
       <tbody>{rows.map((t) => <tr key={t.id}><td>{t.name}</td><td>{majors.find((m) => m.id === t.major_id)?.name}</td><td>{t.title || "—"}</td><td>{t.role || "—"}</td><td>{t.is_active ? "启用" : "停用"}</td><td><button className="row-action" disabled={busy} onClick={() => { setEditing(t.id); setShowForm(true); setDraft({ name: t.name, title: t.title, role: t.role, major_id: t.major_id, is_active: t.is_active }); setMessage(""); }}>编辑</button></td></tr>)}
         {!rows.length && <tr><td colSpan={6} className="table-empty">{loading ? "正在加载教师…" : "暂无匹配的教师"}</td></tr>}
       </tbody></table></div>

@@ -3,6 +3,7 @@
 import { Archive, Check, CircleAlert, Copy, ExternalLink, FolderOpen, RefreshCw, ScrollText, Users } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import { confirmDialog } from "@/app/components/ConfirmDialog";
 import { api } from "@/app/lib/api";
 import { Brand } from "./Brand";
 import { ThemeToggle } from "./ThemeToggle";
@@ -200,9 +201,9 @@ export function PanelApp() {
         {state?.update?.notes && <pre className="panel-notes">{state.update.notes}</pre>}
         <div className="panel-buttons">
           <button disabled={!state?.available || !!busy} onClick={() => void run("check", async () => { await api("/api/panel/update/check", { method: "POST" }); })}><RefreshCw size={15} />{busy === "check" ? "正在检查…" : "检查更新"}</button>
-          <button className="accent" disabled={!state?.available || !!busy || !(state?.update?.status === "available" || state?.update?.status === "ready")} onClick={() => {
+          <button className="accent" disabled={!state?.available || !!busy || !(state?.update?.status === "available" || state?.update?.status === "ready")} onClick={async () => {
             const linux = state?.platform === "linux";
-            if (linux || window.confirm("安装更新会短暂停止服务并自动重新启动。现在更新？")) void run("apply", async () => {
+            if (linux || await confirmDialog({ title: "现在安装更新？", body: "安装更新会短暂停止服务并自动重新启动。", confirmLabel: "立即更新" })) void run("apply", async () => {
               await api("/api/panel/update/apply", { method: "POST" });
               setMessage(linux ? "正在下载更新包，完成后会打开系统安装器。安装后退出并重新启动 DeskAtlas。" : "正在下载并安装更新，程序会自动重启。");
             });

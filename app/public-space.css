@@ -30,7 +30,7 @@
 .directory-heading > span { margin-left: auto; font-size: var(--text-xs); padding: 3px 7px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs); color: var(--ink-soft); }
 .major-filter { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
 .major-filter > span { font-size: var(--text-xs); font-weight: 600; color: var(--ink-soft); }
-.major-filter select { font-size: var(--text-sm); }
+.major-filter .select-trigger { font-size: var(--text-sm); }
 .picker-row { padding-bottom: 20px; }
 .picker-row h2 { display: flex; align-items: center; justify-content: space-between; margin: 0 0 10px; font-size: var(--text-xs); font-weight: 600; color: var(--ink-soft); }
 .picker-row h2 small { font-size: var(--text-xs); font-weight: 400; }
@@ -40,7 +40,7 @@
 .floor-tab.active { background: var(--surface); box-shadow: var(--shadow-sm); color: var(--ink); }
 .room-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .room-tab { min-width: 0; padding: 12px 6px 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--surface-muted); text-align: center; color: var(--ink-soft); transition: background .15s, border-color .15s; }
-.room-tab span { display: block; color: var(--ink); font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.room-tab > span { display: block; color: var(--ink); font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .room-tab-majors { display: flex; justify-content: center; margin-top: 6px; }
 .room-tab small { display: flex; align-items: center; justify-content: center; gap: 4px; font-size: var(--text-xs); margin-top: 6px; }
 .room-tab .has-vacancy { color: var(--success-text); }
@@ -52,7 +52,7 @@
 .room-major-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0 8px; }
 
 /* Workspace frame */
-.workspace-frame { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-sm); }
+.workspace-frame { --table-bg: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-sm); }
 .room-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 16px 20px; }
 .room-heading-title { display: flex; align-items: center; gap: 18px; }
 .room-number { font-size: 28px; font-weight: 500; letter-spacing: -.05em; padding-right: 20px; border-right: 1px solid var(--line); font-variant-numeric: tabular-nums; }
@@ -173,7 +173,7 @@
   .directory-heading, .directory-footnote { display: none; }
   .major-filter { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; margin-bottom: 10px; }
   .major-filter > span { white-space: nowrap; }
-  .major-filter select { width: min(320px, 100%); }
+  .major-filter .select-control { width: min(320px, 100%); }
   .picker-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding-bottom: 10px; }
   .picker-row h2 { margin: 0; min-width: 44px; }
   .picker-row h2 small { display: none; }

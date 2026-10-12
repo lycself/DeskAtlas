@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRightLeft, Pencil, Search, UserPlus } from "lucide-react";
+import { Select } from "@/app/components/Select";
 import { api } from "@/app/lib/api";
 import type { Bootstrap, LayoutItem, Student } from "@/app/lib/types";
 import { StudentProfile } from "../StudentProfile";
@@ -122,7 +123,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
                 </div> : <p className="panel-empty">此工位当前不可分配，可在下方调整使用状态。</p>}
       {!moving && item?.seat && !loading && !virtual && !editing && !creating && <details className="panel-secondary"><summary>工位状态与备注</summary><form onSubmit={(event) => {
         event.preventDefault(); void run(async () => { await api(`/api/admin/seats/${item.seat!.id}/status`, { method: "PATCH", body: JSON.stringify({ status, note: note.trim() || null }) }); });
-      }}><label><span>使用状态</span><select value={status} onChange={(e) => { setStatus(e.target.value); onDirty(true); }} disabled={!!student || !!pending}><option value="active">正常可用</option><option value="reserved">保留</option><option value="maintenance">维修</option><option value="disabled">停用</option></select></label><label><span>备注</span><textarea rows={3} value={note} onChange={(e) => { setNote(e.target.value); onDirty(true); }} /></label><button type="submit">保存状态与备注</button></form></details>}
+      }}><label><span>使用状态</span><Select value={status} onChange={(value) => { setStatus(value); onDirty(true); }} disabled={!!student || !!pending} options={[{ value: "active", label: "正常可用" }, { value: "reserved", label: "保留" }, { value: "maintenance", label: "维修" }, { value: "disabled", label: "停用" }]} /></label><label><span>备注</span><textarea rows={3} value={note} onChange={(e) => { setNote(e.target.value); onDirty(true); }} /></label><button type="submit">保存状态与备注</button></form></details>}
     </fieldset>
     {busy && <p className="form-hint" role="status">正在保存…</p>}
   </aside>;

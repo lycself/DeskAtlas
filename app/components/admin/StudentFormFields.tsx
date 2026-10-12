@@ -1,6 +1,7 @@
 "use client";
 
 import type { Bootstrap } from "@/app/lib/types";
+import { Select } from "@/app/components/Select";
 
 export type StudentFormValues = {
   name: string;
@@ -43,7 +44,7 @@ type Props = {
 
 /** One field layout for every place a student record is entered or edited. */
 export function StudentFormFields({ form, onChange, options, required = false, adviserHint }: Props) {
-  const blank = required ? null : <option value="">待补全</option>;
+  const blank = required ? [] : [{ value: "", label: "待补全" }];
   return (
     <>
       <div className="field-grid two">
@@ -56,9 +57,9 @@ export function StudentFormFields({ form, onChange, options, required = false, a
         {adviserHint && <small>{adviserHint}</small>}
       </label>
       <div className="field-grid three">
-        <label><span>年级</span><select required={required} value={form.enrollment_year} onChange={(event) => onChange({ enrollment_year: event.target.value })}>{blank}{options?.years.map((year) => <option key={year}>{year}</option>)}</select></label>
-        <label><span>培养层次</span><select required={required} value={form.program_level} onChange={(event) => onChange({ program_level: event.target.value })}>{blank}{options?.program_levels.map((level) => <option key={level}>{level}</option>)}</select></label>
-        <label><span>教研中心</span><select required={required} value={form.major_id} onChange={(event) => onChange({ major_id: event.target.value })}>{blank}{options?.majors.map((major) => <option key={major.id} value={major.id}>{major.name}</option>)}</select></label>
+        <label><span>年级</span><Select required={required} value={String(form.enrollment_year)} onChange={(value) => onChange({ enrollment_year: value })} options={[...blank, ...(options?.years ?? []).map((year) => ({ value: String(year), label: String(year) }))]} /></label>
+        <label><span>培养层次</span><Select required={required} value={form.program_level} onChange={(value) => onChange({ program_level: value })} options={[...blank, ...(options?.program_levels ?? []).map((level) => ({ value: level, label: level }))]} /></label>
+        <label><span>教研中心</span><Select required={required} value={String(form.major_id)} onChange={(value) => onChange({ major_id: value })} options={[...blank, ...(options?.majors ?? []).map((major) => ({ value: String(major.id), label: major.name }))]} /></label>
       </div>
       <DerivedEmail studentNo={form.student_no} />
       {!required && <label><span>学生备注</span><textarea rows={3} maxLength={1000} value={form.note} onChange={(event) => onChange({ note: event.target.value })} placeholder="记录休学、出国、离校等学生情况" /></label>}

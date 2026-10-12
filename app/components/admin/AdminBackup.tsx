@@ -1,9 +1,11 @@
 "use client";
 
-import { Archive, CircleAlert, Check, Download, FileSpreadsheet, HardDriveDownload, KeyRound, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Archive, CircleAlert, Download, FileSpreadsheet, HardDriveDownload, KeyRound, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
+import { confirmDialog, noticeDialog } from "@/app/components/ConfirmDialog";
+import { Notice } from "@/app/components/Notice";
 import { api } from "@/app/lib/api";
 
 type SetupStatus = { configured: boolean; packaged: boolean; database: string; data_dir?: string | null; version: string };
@@ -58,23 +60,23 @@ export function AdminBackup({ active }: { active: boolean }) {
     await load();
     setMessage(`已在备份目录生成 ${created.name}`);
   });
-  const remove = (name: string) => {
-    if (!window.confirm(`删除备份 ${name}？此操作不可撤销。`)) return;
+  const remove = async (name: string) => {
+    if (!await confirmDialog({ title: `删除备份 ${name}？`, body: "此操作不可撤销。", confirmLabel: "删除", danger: true })) return;
     void run(`delete-${name}`, async () => {
       await api(`/api/admin/backup/file/${encodeURIComponent(name)}`, { method: "DELETE" });
       await load();
       setMessage("备份已删除");
     });
   };
-  const restore = (event: FormEvent) => {
+  const restore = async (event: FormEvent) => {
     event.preventDefault();
     if (!restoreFile) { setError("请选择备份包"); return; }
-    if (!window.confirm("恢复会用备份包里的数据完全替换当前的房间、工位、学生和邮件设置，本机管理员账号保持不变。当前数据会先自动留一份副本。确定继续？")) return;
+    if (!await confirmDialog({ title: "用备份包恢复数据？", body: "恢复会用备份包里的数据完全替换当前的房间、工位、学生和邮件设置，本机管理员账号保持不变。当前数据会先自动留一份副本。", confirmLabel: "恢复", danger: true })) return;
     void run("restore", async () => {
       const body = new FormData();
       body.append("file", restoreFile);
       await api("/api/admin/backup/restore", { method: "POST", body });
-      window.alert("数据已恢复。请使用本机现有的管理员账号重新登录。");
+      await noticeDialog("数据已恢复", "请使用本机现有的管理员账号重新登录。");
       router.replace("/admin/login");
     });
   };
@@ -89,7 +91,7 @@ export function AdminBackup({ active }: { active: boolean }) {
   };
 
   return <div className="backup-page">
-    {error && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}{message && <p className="success-banner"><Check size={16} />{message}</p>}
+    {error && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}<Notice message={message} onClearMessage={() => setMessage("")} />
     <div className="settings-grid backup-grid">
       <section className="flat-section backup-section">
         <header><div><h2>备份与导出</h2><p>备份包包含全部数据、上传文件和邮件配置密钥。换电脑导入后设置本机管理员账号。</p></div><Archive /></header>

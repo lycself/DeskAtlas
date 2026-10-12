@@ -3,6 +3,9 @@
 import { Archive, ArrowRightLeft, Armchair, Copy, Grid3X3, List, Plus, Redo2, RefreshCw, RotateCw, Save, Search, Settings2, Trash2, Undo2, Upload, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
+import { confirmDialog } from "@/app/components/ConfirmDialog";
+import { modalOpen } from "@/app/hooks/useModalLayer";
+import { Select } from "@/app/components/Select";
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
 import type { AdminJump, LayoutItem, Major, Room, Student } from "@/app/lib/types";
@@ -134,8 +137,9 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
   }, [selectedRoomId, active]);
   useEffect(() => {
     if (!showCreate) return;
-    const onPointer = (event: MouseEvent) => { if (!createMenu.current?.contains(event.target as Node)) setShowCreate(false); };
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setShowCreate(false); };
+    // A confirmation raised from the popover sits outside it; leave the popover alone while one is open.
+    const onPointer = (event: MouseEvent) => { if (!modalOpen() && !createMenu.current?.contains(event.target as Node)) setShowCreate(false); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.isComposing && !modalOpen()) setShowCreate(false); };
     document.addEventListener("mousedown", onPointer);
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("mousedown", onPointer); document.removeEventListener("keydown", onKey); };
@@ -147,12 +151,13 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
     window.addEventListener("beforeunload", prevent);
     return () => window.removeEventListener("beforeunload", prevent);
   }, [dirty, metadataDirty]);
-  const chooseRoom = (id: number) => {
+  const discard = (title: string, body?: string) => confirmDialog({ title, body, confirmLabel: "放弃修改", danger: true });
+  const chooseRoom = async (id: number) => {
     if (id === selectedRoomId) return true;
     if (busy || panelBusy.current) return false;
-    if (panelDirty.current && !confirm("学生资料或工位备注尚未保存，放弃修改并切换房间？")) return false;
+    if (panelDirty.current && !await discard("放弃修改并切换房间？", "学生资料或工位备注尚未保存。")) return false;
     panelDirty.current = false;
-    if ((dirty || metadataDirty) && !confirm("当前房间有未保存的更改，确定放弃并切换房间？")) return false;
+    if ((dirty || metadataDirty) && !await discard("放弃修改并切换房间？", "当前房间有未保存的更改。")) return false;
     setSelectedRoomId(id); setMessage("");
     return true;
   };
@@ -178,8 +183,8 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
     const next = future[0]; if (!next) return;
     setPast((history) => [...history, items]); setItems(next); setFuture((history) => history.slice(1));
   };
-  const restoreSavedDraft = () => {
-    if (!room || !dirty || !confirm("恢复到上次保存的草稿？本次未保存的修改会丢失。")) return;
+  const restoreSavedDraft = async () => {
+    if (!room || !dirty || !await confirmDialog({ title: "恢复到上次保存的草稿？", body: "本次未保存的修改会丢失。", confirmLabel: "恢复草稿", danger: true })) return;
     setItems(room.items); setPast([]); setFuture([]);
     setSelectedId(null); setSelectedIds([]); setShowGrid(false);
     setError(""); setMessage("已恢复到上次保存的草稿");
@@ -187,8 +192,8 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
 
   const createRoom = async (event: FormEvent) => {
     event.preventDefault(); if (!newRoom.trim() || busyRef.current || panelBusy.current) return;
-    if (panelDirty.current && !confirm("学生资料尚未保存，放弃修改并创建房间？")) return;
-    if ((dirty || metadataDirty) && !confirm("创建新房间将切换编辑器，确定放弃当前未保存的更改？")) return;
+    if (panelDirty.current && !await discard("放弃修改并创建房间？", "学生资料尚未保存。")) return;
+    if ((dirty || metadataDirty) && !await discard("放弃修改并创建房间？", "创建新房间会切换编辑器，当前未保存的更改将丢失。")) return;
     busyRef.current = true; setBusy(true); setError("");
     try {
       const created = await api<Room>("/api/admin/rooms", {
@@ -318,7 +323,7 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
     finally { busyRef.current = false; setBusy(false); }
   };
   const discardDraftAndExit = async () => {
-    if (!room || busyRef.current || !confirm(`放弃草稿并退出编辑？服务器上已保存但未发布的布局修改也会被丢弃，学生端保持当前已发布的布局。${metadataDirty ? "未保存的房间信息也会丢失。" : ""}`)) return;
+    if (!room || busyRef.current || !await confirmDialog({ title: "放弃草稿并退出编辑？", body: `服务器上已保存但未发布的布局修改也会被丢弃，学生端保持当前已发布的布局。${metadataDirty ? "未保存的房间信息也会丢失。" : ""}`, confirmLabel: "放弃草稿", danger: true })) return;
     busyRef.current = true; setBusy(true); setError(""); setMessage("");
     try {
       const updated = await api<Room>(`/api/admin/rooms/${room.id}/layout/discard`, { method: "POST" });
@@ -356,48 +361,48 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
     if (room && !dirty && !metadataDirty && !panelDirty.current) void refreshSeatData();
     else void load();
   };
-  const selectManaged = (item: LayoutItem) => {
+  const selectManaged = async (item: LayoutItem) => {
     if (panelBusy.current) return;
     if (movingStudent) {
       if (item.seat?.display_state !== "available") { setError("请选择绿色的空闲工位作为目标。"); return; }
       setMoveTarget(item); setError(""); return;
     }
-    if (panelDirty.current && !confirm("当前资料尚未保存，放弃修改并查看其他工位？")) return;
+    if (panelDirty.current && !await discard("放弃修改并查看其他工位？", "当前资料尚未保存。")) return;
     panelDirty.current = false; selectItem(item); setError("");
   };
-  const changeMode = (next: "manage" | "edit") => {
+  const changeMode = async (next: "manage" | "edit") => {
     if (panelBusy.current || busy) return false;
     if (next === mode) return true;
     if (dirty || metadataDirty) { setError("请先保存布局与房间信息，再切换工作模式。"); return false; }
-    if (panelDirty.current && !confirm("资料尚未保存，放弃修改并切换模式？")) return false;
+    if (panelDirty.current && !await discard("放弃修改并切换模式？", "资料尚未保存。")) return false;
     panelDirty.current = false; setMode(next); setMovingStudent(null); setMoveTarget(null); setSelectedId(null); setSelectedIds([]); setError("");
     return true;
   };
   // A search result opens its room; a seat is selected once that room's layout has loaded.
-  const openJump = useEffectEvent((target: NonNullable<typeof jump>) => {
+  const openJump = useEffectEvent(async (target: NonNullable<typeof jump>) => {
     pendingSeat.current = null;
-    if (!chooseRoom(target.roomId)) return;
+    if (!await chooseRoom(target.roomId)) return;
     setQuery("");
     if (target.seatId) pendingSeat.current = { roomId: target.roomId, seatId: target.seatId };
   });
-  useEffect(() => { if (jump) openJump(jump); }, [jump]);
-  const selectPendingSeat = useEffectEvent(() => {
+  useEffect(() => { if (jump) void openJump(jump); }, [jump]);
+  const selectPendingSeat = useEffectEvent(async () => {
     const target = pendingSeat.current;
     if (!target || room?.id !== target.roomId || detailLoading) return;
     pendingSeat.current = null;
     const item = items.find((entry) => entry.id === target.seatId);
     if (!item) { setError("该工位不在当前布局中，请刷新后重试。"); return; }
-    if (!changeMode("manage")) return;
-    selectManaged(item); setReveal((value) => value + 1);
+    if (!await changeMode("manage")) return;
+    await selectManaged(item); setReveal((value) => value + 1);
   });
-  useEffect(() => { selectPendingSeat(); }, [jump, room, items, detailLoading]);
+  useEffect(() => { void selectPendingSeat(); }, [jump, room, items, detailLoading]);
   useEffect(() => {
     if (!reveal) return;
     // Centred so the match clears the sticky header; virtual groups can list hundreds of people.
     workbench.current?.querySelector(".managed-map .selected-seat, .managed-map .virtual-position.selected, .managed-seat-list tr.selected")?.scrollIntoView({ block: "center" });
   }, [reveal]);
   const archiveRoom = async () => {
-    if (!room || busy || panelBusy.current || !confirm(`归档房间“${room.name}”？归档后房间不再显示在列表和学生端。${dirty || metadataDirty || panelDirty.current ? "未保存的修改将被放弃。" : ""}`)) return;
+    if (!room || busy || panelBusy.current || !await confirmDialog({ title: `归档房间“${room.name}”？`, body: `归档后房间不再显示在列表和学生端。${dirty || metadataDirty || panelDirty.current ? "未保存的修改将被放弃。" : ""}`, confirmLabel: "归档", danger: true })) return;
     try { await api(`/api/admin/rooms/${room.id}`, { method: "PATCH", body: JSON.stringify({ is_archived: true }) }); setShowRoomSettings(false); await load(); setMessage(`房间 ${room.name} 已归档`); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "归档失败"); }
   };
@@ -432,7 +437,7 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
           </button>)}</div>
         </aside>
         {!room ? (detailLoading && <div className="central-message"><RefreshCw className="spin" />正在加载房间…</div>) : <section ref={workbench} className={`room-workbench ${mode === "edit" && !room.is_virtual ? "editing-layout" : "managing-seats"} ${detailLoading ? "is-loading" : ""}`} aria-busy={busy || detailLoading} onKeyDown={(event) => {
-          if (mode !== "edit" || busy || (event.target as HTMLElement).closest("input, textarea, select, button")) return;
+          if (event.nativeEvent.isComposing || mode !== "edit" || busy || (event.target as HTMLElement).closest("input, textarea, select, button")) return;
           if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
           else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) && selection.length) {
             event.preventDefault(); const step = event.shiftKey ? 12 : 1;
@@ -461,11 +466,11 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
           </form>}
           {mode === "edit" && !room.is_virtual ? <fieldset disabled={busy}>
             <div className="layout-toolbar">
-              <div className="tool-group"><button onClick={addSeat}><Armchair />添加工位</button><button aria-expanded={showGrid} onClick={() => setShowGrid(!showGrid)}><Grid3X3 />批量添加</button><button onClick={() => addWall("horizontal")}><Plus />横墙</button><button onClick={() => addWall("vertical")}><Plus />竖墙</button><select aria-label="添加房间设施" value="" onChange={(e) => { if (e.target.value) addFixture(e.target.value); }}><option value="">添加设施…</option>{Object.entries(fixtureDefaults).map(([type, value]) => <option key={type} value={type}>{value.label}</option>)}</select></div>
+              <div className="tool-group"><button onClick={addSeat}><Armchair />添加工位</button><button aria-expanded={showGrid} onClick={() => setShowGrid(!showGrid)}><Grid3X3 />批量添加</button><button onClick={() => addWall("horizontal")}><Plus />横墙</button><button onClick={() => addWall("vertical")}><Plus />竖墙</button><Select aria-label="添加房间设施" value="" placeholder="添加设施…" onChange={(value) => { if (value) addFixture(value); }} options={Object.entries(fixtureDefaults).map(([type, value]) => ({ value: type, label: value.label }))} /></div>
               <div className="tool-group"><button aria-label="撤销布局修改" title="撤销（Ctrl / ⌘ Z）" onClick={undo} disabled={!past.length}><Undo2 />撤销</button><button aria-label="重做布局修改" title="重做（Ctrl / ⌘ Shift Z）" onClick={redo} disabled={!future.length}><Redo2 />重做</button><button title="丢弃本次未保存的修改，恢复到上次保存的草稿" disabled={!dirty} onClick={restoreSavedDraft}><RotateCw />恢复到上次保存</button><button className="danger-plain" title="放弃所有未发布的布局修改并退出编辑" onClick={discardDraftAndExit}><X />放弃草稿并退出</button></div>
               <div className="tool-group tool-group-commit"><button disabled={!dirty} onClick={save}><Save />保存草稿</button><button className="primary-action compact" onClick={publish}><Upload />发布布局</button></div>
             </div>
-            {showGrid && <div className="grid-generator"><label>行<input aria-label="矩阵行数" type="number" min={1} max={20} value={gridRows} onChange={(e) => setGridRows(Number(e.target.value))} /></label><label>列<input aria-label="矩阵列数" type="number" min={1} max={20} value={gridCols} onChange={(e) => setGridCols(Number(e.target.value))} /></label><label>起始编号<input aria-label="矩阵起始编号" type="number" min={1} value={gridStart} onChange={(e) => setGridStart(Number(e.target.value))} /></label><label>编号方向<select value={gridDirection} onChange={(e) => setGridDirection(e.target.value as "row" | "column")}><option value="row">先行后列</option><option value="column">先列后行</option></select></label><button onClick={generateGrid}>添加到空白位置</button></div>}
+            {showGrid && <div className="grid-generator"><label>行<input aria-label="矩阵行数" type="number" min={1} max={20} value={gridRows} onChange={(e) => setGridRows(Number(e.target.value))} /></label><label>列<input aria-label="矩阵列数" type="number" min={1} max={20} value={gridCols} onChange={(e) => setGridCols(Number(e.target.value))} /></label><label>起始编号<input aria-label="矩阵起始编号" type="number" min={1} value={gridStart} onChange={(e) => setGridStart(Number(e.target.value))} /></label><label>编号方向<Select value={gridDirection} onChange={(value) => setGridDirection(value as "row" | "column")} options={[{ value: "row", label: "先行后列" }, { value: "column", label: "先列后行" }]} /></label><button onClick={generateGrid}>添加到空白位置</button></div>}
             <div className="layout-alignment-toolbar" role="group" aria-label="对齐与分布"><span>{selection.length ? `已选 ${selection.length} 项` : "框选或 Shift 点击多选"}</span>{([["left", "左对齐"], ["cx", "水平居中"], ["right", "右对齐"], ["top", "顶对齐"], ["cy", "垂直居中"], ["bottom", "底对齐"], ["horizontal", "水平等距"], ["vertical", "垂直等距"]] as [Alignment, string][]).map(([value, label]) => <button key={value} disabled={selection.length < (value === "horizontal" || value === "vertical" ? 3 : 2)} onClick={() => arrange(value)}>{label}</button>)}</div>
             <div className="layout-edit-body"><SeatMap key={room.id} room={room} items={items} editable={!busy} selectedId={selectedId} selectedIds={selectedIds} onSelect={selectItem} onSelectMany={(ids) => { setSelectedIds(ids); setSelectedId(ids.at(-1) ?? null); }} onItemsChange={applyItems} />
               <aside className="layout-properties"><h3>{selected ? `${selection.length > 1 ? `已选 ${selection.length} 项 · ` : ""}${selected.type === "seat" ? "工位 " : ""}${selected.label}` : "布局属性"}</h3>{selected ? <>

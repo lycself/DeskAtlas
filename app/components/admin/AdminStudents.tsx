@@ -11,12 +11,14 @@ import {
   RefreshCw,
   Save,
   Search,
-  UserRoundCheck,
   UserRoundX,
   X,
 } from "lucide-react";
 import { FormEvent, Fragment, useCallback, useEffect, useRef, useState } from "react";
 
+import { confirmDialog } from "@/app/components/ConfirmDialog";
+import { Notice } from "@/app/components/Notice";
+import { Select } from "@/app/components/Select";
 import { api } from "@/app/lib/api";
 import type { AdminJump, Bootstrap, Student } from "@/app/lib/types";
 
@@ -174,7 +176,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
     const original = selected.current_assignment
       ? `${selected.current_assignment.room_name} · ${selected.current_assignment.seat_code}`
       : "未分配";
-    if (!confirm(`确认把 ${selected.name} 从“${original}”调整到“${target}”？`)) return;
+    if (!await confirmDialog({ title: `调整 ${selected.name} 的工位？`, body: `从“${original}”调整到“${target}”。`, confirmLabel: "调整" })) return;
     busyRef.current = true; setBusy(true);
     try {
       await api(`/api/admin/students/${selected.id}/move`, {
@@ -190,7 +192,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
   };
 
   const release = async () => {
-    if (!selected || busyRef.current || !confirm(`释放 ${selected.name} 的当前工位？`)) return;
+    if (!selected || busyRef.current || !await confirmDialog({ title: `释放 ${selected.name} 的当前工位？`, confirmLabel: "释放", danger: true })) return;
     busyRef.current = true; setBusy(true);
     try {
       await api(`/api/admin/students/${selected.id}/release`, { method: "POST" });
@@ -212,17 +214,17 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
         </div>
       </header>
       {error && !showCreate && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}
-      {message && <p className="success-banner"><UserRoundCheck size={16} />{message}</p>}
+      <Notice message={message} onClearMessage={() => setMessage("")} />
 
       <fieldset disabled={busy}>
       <div className="student-tools">
         <label className="search-field"><Search size={16} /><input aria-label="搜索学生" placeholder="搜索姓名、学号或导师" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} /></label>
-        <select aria-label="工位分组" value={placement} onChange={(event) => { setPlacement(event.target.value); setPage(0); }}><option value="">全部工位分组</option><option value="physical">实际工位</option><option value="翔安">翔安</option><option value="未被分配">未被分配</option></select>
+        <Select aria-label="工位分组" value={placement} onChange={(value) => { setPlacement(value); setPage(0); }} options={[{ value: "", label: "全部工位分组" }, { value: "physical", label: "实际工位" }, { value: "翔安", label: "翔安" }, { value: "未被分配", label: "未被分配" }]} />
         <label className="check-control"><input type="checkbox" checked={incompleteOnly} onChange={(event) => { setIncompleteOnly(event.target.checked); setPage(0); }} />只看信息待补全</label>
       </div>
 
       <section className="seat-table-wrap student-table">
-        <table className="data-table student-data-table">
+        <table className="data-table student-data-table sticky-first-col">
           <thead><tr><th>学生</th><th>导师</th><th>教研中心</th><th>当前工位</th><th>资料</th><th /></tr></thead>
           <tbody>
             {!filtered.length && <tr><td colSpan={6} className="table-empty">{loading ? "正在加载学生…" : "没有匹配的学生"}</td></tr>}
@@ -270,7 +272,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
                           </section>
                           <section className="move-panel" hidden={detailTab !== "seat"}>
                             <h3><ArrowRightLeft size={16} />修改工位</h3>
-                            <select aria-label="目标工位" value={moveSeat} onChange={(event) => setMoveSeat(event.target.value)}><option value="">选择一个空闲工位</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select>
+                            <Select aria-label="目标工位" value={String(moveSeat)} onChange={setMoveSeat} placeholder="选择一个空闲工位" options={freeSeats.map((seat) => ({ value: String(seat.id), label: seat.label }))} />
                             <button disabled={!moveSeat} onClick={move}>确认移动</button>
                             {selected.current_assignment && <button className="danger-plain" onClick={release}><UserRoundX size={16} />释放当前工位</button>}
                           </section>
@@ -301,7 +303,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
             {error && <p className="form-error"><CircleAlert size={16} />{error}</p>}
             <fieldset disabled={busy}>
               <StudentFormFields form={form} onChange={(patch) => setForm({ ...form, ...patch })} options={options} />
-              <label><span>直接分配工位</span><select value={form.seat_id} onChange={(event) => setForm({ ...form, seat_id: event.target.value })}><option value="">未被分配（虚拟工位）</option>{freeSeats.map((seat) => <option key={seat.id} value={seat.id}>{seat.label}</option>)}</select></label>
+              <label><span>直接分配工位</span><Select value={String(form.seat_id)} onChange={(value) => setForm({ ...form, seat_id: value })} options={[{ value: "", label: "未被分配（虚拟工位）" }, ...freeSeats.map((seat) => ({ value: String(seat.id), label: seat.label }))]} /></label>
               <div className="form-actions"><button className="primary-action compact">{busy ? "正在保存…" : "保存学生"}</button><button type="button" className="secondary-action compact" onClick={() => setShowCreate(false)}>取消</button></div>
             </fieldset>
           </form>
