@@ -2,9 +2,11 @@
 // mistake that was already made once; add a rule here when a new kind slips back in.
 // Run with `pnpm test:web`.
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: on Windows the latter yields "/D:/…".
+const root = fileURLToPath(new URL("..", import.meta.url));
 const appDir = join(root, "app");
 
 function walk(dir) {
@@ -14,13 +16,15 @@ function walk(dir) {
   });
 }
 
+// Repo-relative path with forward slashes, so checks and messages read the same on every OS.
+const posix = (path) => relative(root, path).split(sep).join("/");
 const files = walk(appDir);
 const css = files.filter((path) => path.endsWith(".css"));
 const code = files.filter((path) => /\.(tsx?|mjs)$/.test(path));
 const problems = [];
 const report = (path, index, source, message) => {
   const line = source.slice(0, index).split("\n").length;
-  problems.push(`${relative(root, path)}:${line}  ${message}`);
+  problems.push(`${posix(path)}:${line}  ${message}`);
 };
 const stripComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "));
 
@@ -69,7 +73,7 @@ for (const path of code) {
   for (const match of source.matchAll(/(?<![\w.])(?:window\.)?(confirm|alert|prompt)\(/g)) {
     report(path, match.index, source, `${match[1]}() — use confirmDialog / noticeDialog from components/ConfirmDialog`);
   }
-  if (!path.endsWith("components/Select.tsx")) {
+  if (posix(path) !== "app/components/Select.tsx") {
     for (const match of source.matchAll(/<select[\s>]/g)) report(path, match.index, source, "<select> — use components/Select");
   }
 }
