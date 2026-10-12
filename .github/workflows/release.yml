@@ -87,7 +87,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check frontend
-        run: pnpm lint && pnpm typecheck && pnpm test:layout
+        run: pnpm lint && pnpm typecheck && pnpm test:web && pnpm test:layout
 
       - name: Build static frontend
         run: pnpm exec next build
