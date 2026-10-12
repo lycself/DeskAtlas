@@ -8,16 +8,16 @@
 .panel-status.update i { background: var(--warning); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warning) 18%, transparent); }
 .panel-notice { margin: 0; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); color: var(--ink-soft); font-size: var(--text-md); line-height: 1.5; }
 .panel-card { border-radius: var(--radius-lg); padding: 18px; display: flex; flex-direction: column; gap: 12px; }
-.panel-card h2 { margin: 0; font-size: 15px; letter-spacing: -.02em; }
+.panel-card h2 { margin: 0; font-size: var(--text-title); letter-spacing: -.02em; }
 .panel-card > p { margin: 0; color: var(--ink-soft); font-size: var(--text-md); line-height: 1.55; }
-.panel-card code, .panel-footer code { font-size: var(--text-xs); word-break: break-all; }
+.panel-card code, .panel-footer code { font-size: var(--text-sm); word-break: break-all; }
 .panel-address-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-muted); font-size: var(--text-md); font-family: var(--font-mono); }
 .panel-address-row.primary { border-color: var(--accent-soft); }
-.panel-address-row em { margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-style: normal; font-size: var(--text-xs); font-family: var(--font-sans); }
+.panel-address-row em { margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-style: normal; font-size: var(--text-sm); font-family: var(--font-sans); }
 .panel-qr { display: grid; grid-template-columns: 132px 1fr; gap: 14px; align-items: center; }
 .panel-qr img { width: 132px; height: 132px; padding: 6px; border-radius: var(--radius-md); background: #fff; border: 1px solid var(--line); }
 .panel-qr strong { display: block; font-size: var(--text-md); word-break: break-all; }
-.panel-qr small { display: block; margin-top: 6px; color: var(--ink-soft); font-size: var(--text-xs); line-height: 1.5; }
+.panel-qr small { display: block; margin-top: 6px; color: var(--ink-soft); font-size: var(--text-sm); line-height: 1.5; }
 .panel-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .panel-buttons button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font-size: var(--text-md); font-weight: 600; }
 .panel-buttons button:hover:not(:disabled) { border-color: var(--accent-soft); color: var(--accent-text); }
@@ -25,14 +25,14 @@
 .panel-buttons button.accent:hover:not(:disabled) { color: var(--accent-ink); filter: brightness(1.1); }
 .panel-toggle { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .panel-toggle strong { font-size: var(--text-md); font-weight: 600; }
-.panel-toggle small { display: block; margin-top: 2px; color: var(--ink-soft); font-size: var(--text-xs); line-height: 1.45; }
+.panel-toggle small { display: block; margin-top: 2px; color: var(--ink-soft); font-size: var(--text-sm); line-height: 1.45; }
 .panel-form { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
 .panel-inline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .panel-field { display: flex; flex-direction: column; gap: 6px; }
-.panel-field span { color: var(--ink-soft); font-size: var(--text-xs); font-weight: 600; }
+.panel-field span { color: var(--ink-soft); font-size: var(--text-sm); font-weight: 600; }
 .panel-form .primary-action { align-self: flex-start; }
 .panel-notes { margin: 0; padding: 10px 12px; max-height: 160px; overflow: auto; border-radius: var(--radius-sm); background: var(--surface-muted); font-size: var(--text-sm); line-height: 1.5; white-space: pre-wrap; }
-.panel-footer { margin-top: 6px; color: var(--ink-soft); font-size: var(--text-xs); line-height: 1.6; text-align: center; }
+.panel-footer { margin-top: 6px; color: var(--ink-soft); font-size: var(--text-sm); line-height: 1.6; text-align: center; }
 @media (max-width: 460px) {
   .panel-header { flex-wrap: wrap; }
   .panel-header-actions { margin-left: auto; }
