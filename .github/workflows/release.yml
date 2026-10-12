@@ -40,7 +40,7 @@ jobs:
     env:
       PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve version
         id: version
@@ -56,16 +56,16 @@ jobs:
           [[ "$BUILD_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
           echo "value=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.32.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -174,7 +174,7 @@ jobs:
             --notes-file dist/notes.md --output "dist/$MANIFEST"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: DeskAtlas-${{ steps.version.outputs.value }}-${{ matrix.platform }}
           path: |
@@ -186,7 +186,7 @@ jobs:
 
       - name: Upload Ubuntu smoke screenshot
         if: always() && matrix.platform == 'ubuntu'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Ubuntu-desktop-smoke-${{ steps.version.outputs.value }}
           path: dist/ubuntu-smoke.png
@@ -196,11 +196,11 @@ jobs:
     needs: desktop
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: DeskAtlas-*-ubuntu
           merge-multiple: true
@@ -217,7 +217,7 @@ jobs:
           WEBKIT_DISABLE_COMPOSITING_MODE: "1"
           WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1280x1024x24' python installer/smoke_linux.py --binary /usr/bin/deskatlas
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: Ubuntu-24.04-desktop-smoke
@@ -229,14 +229,14 @@ jobs:
     needs: [desktop, ubuntu-compatibility]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: DeskAtlas-*
           merge-multiple: true
           path: dist
 
       - name: Publish Windows and Ubuntu together
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: DeskAtlas ${{ github.ref_name }}
           body_path: dist/notes.md
