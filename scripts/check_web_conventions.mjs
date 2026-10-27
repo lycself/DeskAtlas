@@ -106,6 +106,37 @@ for (const path of code) {
   }
 }
 
+// 6. Short row actions must retain their intrinsic width; Chinese labels may not split vertically.
+const globalsPath = join(appDir, "globals.css");
+const globalStyles = stripComments(readFileSync(globalsPath, "utf8"));
+const rowAction = globalStyles.match(/\.row-action\s*\{([^}]+)\}/);
+if (!rowAction || !/white-space\s*:\s*nowrap/.test(rowAction[1]) || !/min-inline-size\s*:\s*max-content/.test(rowAction[1])) {
+  report(globalsPath, rowAction?.index ?? 0, globalStyles, "row actions need nowrap and intrinsic minimum width");
+}
+
+// 7. Both themes must keep semantic text readable on every main surface.
+const rgb = (hex) => [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255);
+const luminance = (hex) => rgb(hex).map((value) => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05);
+for (const [theme, expression] of [["day", /:root\s*\{([^}]*)\}/], ["night", /:root\[data-theme="night"\]\s*\{([^}]*)\}/]]) {
+  const block = globalStyles.match(expression);
+  const palette = Object.fromEntries([...(block?.[1] ?? "").matchAll(/(--[\w-]+)\s*:\s*(#[\da-fA-F]{6})/g)].map((match) => [match[1], match[2]]));
+  const pairs = ["--ink", "--ink-soft", "--accent-text", "--danger", "--warning", "--success-text"].flatMap((ink) => ["--bg", "--surface", "--surface-muted", "--overlay-bg"].map((paper) => [ink, paper]));
+  pairs.push(["--accent-ink", "--accent"]);
+  for (const [ink, paper] of pairs) {
+    if (!palette[ink] || !palette[paper] || contrast(palette[ink], palette[paper]) < 4.5) report(globalsPath, block?.index ?? 0, globalStyles, `${theme}: ${ink} on ${paper} must reach 4.5:1 contrast`);
+  }
+  for (const paper of ["--bg", "--surface", "--overlay-bg"]) {
+    if (!palette["--scrollbar-thumb"] || contrast(palette["--scrollbar-thumb"], palette[paper]) < 3) report(globalsPath, block?.index ?? 0, globalStyles, `${theme}: scrollbar thumb on ${paper} must reach 3:1 contrast`);
+  }
+}
+
+// 8. Local scrollbar overrides bypass the shared WebKit/Firefox treatment and reintroduce tracks.
+for (const path of css.filter((path) => path !== globalsPath)) {
+  const source = stripComments(readFileSync(path, "utf8"));
+  for (const match of source.matchAll(/scrollbar-(?:width|color)\s*:|::-webkit-scrollbar/g)) report(path, match.index, source, "scrollbars belong to globals.css, including portal menus");
+}
+
 if (problems.length) {
   console.error(`Frontend convention problems (${problems.length}):\n${problems.join("\n")}`);
   process.exit(1);

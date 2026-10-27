@@ -12,7 +12,7 @@ from .report_notes import import_note
 HEADER_ALIASES = {
     "room": {"房间", "房间号", "办公室", "教室"},
     "seat": {"座位号", "工位号", "座位", "工位"},
-    "name": {"姓名", "学生姓名"},
+    "name": {"姓名", "学生姓名", "姓名或设备名", "姓名/设备名"},
     "adviser": {"导师", "指导教师"},
     "year": {"年级", "入学年份", "年级（202X级）"},
     "level": {"培养层次（硕/博）", "培养层次", "学历层次"},
@@ -64,8 +64,8 @@ def preview_workbook(content: bytes) -> dict[str, Any]:
             indices[key] = index
     required = {"room", "seat", "name"}
     if not required.issubset(indices):
-        missing = "、".join(sorted(required - set(indices)))
-        raise ValueError(f"缺少必要列：{missing}")
+        missing = "、".join({"room": "房间", "seat": "座位号", "name": "姓名或设备名"}[key] for key in sorted(required - set(indices)))
+        raise ValueError(f"缺少必要列：{missing}。请下载模板并保留第一行表头。")
 
     result: list[dict[str, Any]] = []
     for row_number, row in enumerate(rows[1:], start=2):
@@ -88,9 +88,9 @@ def preview_workbook(content: bytes) -> dict[str, Any]:
         if note_level:
             level, level_warning = note_level, None
         year, year_warning = normalize_year(value("year"))
-        if level_warning:
+        if kind == "student" and level_warning:
             warnings.append(level_warning)
-        if year_warning:
+        if kind == "student" and year_warning:
             warnings.append(year_warning)
         if not room:
             warnings.append("房间缺失")
@@ -134,3 +134,28 @@ def preview_workbook(content: bytes) -> dict[str, Any]:
             "equipment": sum(row["kind"] == "equipment" for row in result),
         },
     }
+
+
+def validate_import_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Validate the edited values, rather than trusting warnings from the upload."""
+    row = dict(row)
+    warnings = []
+    if not str(row.get("room_name") or "").strip():
+        warnings.append("房间缺失")
+    if row.get("kind") != "equipment" and not str(row.get("seat_code") or "").strip():
+        warnings.append("座位号缺失")
+    if row.get("kind") == "student":
+        if not str(row.get("person_name") or "").strip():
+            warnings.append("学生姓名缺失")
+        level, warning = normalize_level(row.get("program_level"))
+        row["program_level"] = level
+        if warning:
+            warnings.append(warning)
+        year, warning = normalize_year(row.get("enrollment_year"))
+        row["enrollment_year"] = year
+        if warning:
+            warnings.append(warning)
+    elif row.get("kind") == "equipment":
+        warnings.append("识别为设备，请确认")
+    row["warnings"] = warnings
+    return row

@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-
-// The hero sits right under the bar, so the glass must appear before the title slides beneath it.
-const SCROLL_THRESHOLD = 24;
+import { HEADER_MOTION_MS, headerMotionFrames, headerShouldCompact } from "@/app/lib/header-motion";
 
 export function useSpringHeader(enabled = true) {
   const headerRef = useRef<HTMLElement>(null);
@@ -12,50 +10,57 @@ export function useSpringHeader(enabled = true) {
     const header = headerRef.current;
     if (!header || !enabled) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let target = window.scrollY > SCROLL_THRESHOLD ? 1 : 0;
-    let position = target;
-    let velocity = 0;
-    let frame = 0;
-    let previousTime = 0;
-    const paint = () => header.style.setProperty("--nav-progress", String(position));
-    const step = (time: number) => {
-      const dt = Math.min((time - previousTime) / 1000 || 1 / 60, 1 / 30);
-      previousTime = time;
-      // Reference: DeepSeek Harness uses a spring with stiffness 180, damping 28.
-      velocity += (180 * (target - position) - 28 * velocity) * dt;
-      position += velocity * dt;
-      if (Math.abs(target - position) < .0005 && Math.abs(velocity) < .005) {
-        position = target;
-        velocity = 0;
-        frame = 0;
-        paint();
-        return;
-      }
-      paint();
-      frame = requestAnimationFrame(step);
+    let compact = headerShouldCompact(false, window.scrollY);
+    let animations: Animation[] = [];
+    const cancel = () => {
+      animations.forEach((animation) => animation.cancel());
+      animations = [];
+      header.classList.remove("is-morphing");
+    };
+    const paint = () => {
+      header.style.setProperty("--nav-progress", compact ? "1" : "0");
+      header.classList.toggle("is-scrolled", compact);
     };
     const update = () => {
-      target = window.scrollY > SCROLL_THRESHOLD ? 1 : 0;
-      header.classList.toggle("is-scrolled", Boolean(target));
-      if (reduced.matches) {
-        cancelAnimationFrame(frame);
-        frame = 0;
-        velocity = 0;
-        position = target;
-        paint();
-      } else if (!frame && position !== target) {
-        previousTime = performance.now();
-        frame = requestAnimationFrame(step);
-      }
+      const next = headerShouldCompact(compact, window.scrollY);
+      if (next === compact) return;
+      const motion = !reduced.matches && !document.hidden && typeof header.animate === "function";
+      // Read the current visual positions before cancelling an interrupted transition.
+      const elements = motion ? [...header.children].filter((node): node is HTMLElement => node instanceof HTMLElement && node.getBoundingClientRect().width > 0) : [];
+      const before = elements.map((node) => node.getBoundingClientRect());
+      cancel();
+      compact = next;
+      // Layout changes only once. The spring animates independent foreground translations and
+      // the glass background's scale, so text stays sharp and no dimensions change per frame.
+      paint();
+      if (!motion) return;
+      const after = elements.map((node) => node.getBoundingClientRect());
+      header.classList.add("is-morphing");
+      const running = elements.flatMap((node, index) => {
+        const from = before[index], to = after[index];
+        if (!to.width || !to.height || Math.abs(from.left - to.left) + Math.abs(from.top - to.top) + Math.abs(from.width - to.width) + Math.abs(from.height - to.height) < .01) return [];
+        return [node.animate(headerMotionFrames(from, to, node.classList.contains("nav-glass")), { duration: HEADER_MOTION_MS, easing: "linear" })];
+      });
+      animations = running;
+      void Promise.allSettled(running.map((animation) => animation.finished)).then(() => {
+        if (animations !== running) return;
+        animations = [];
+        header.classList.remove("is-morphing");
+      });
     };
+    const preferenceChanged = () => { cancel(); compact = headerShouldCompact(compact, window.scrollY); paint(); };
+    const visibilityChanged = () => { if (document.hidden) cancel(); };
     paint();
-    update();
     window.addEventListener("scroll", update, { passive: true });
-    reduced.addEventListener("change", update);
+    window.addEventListener("resize", cancel, { passive: true });
+    reduced.addEventListener("change", preferenceChanged);
+    document.addEventListener("visibilitychange", visibilityChanged);
     return () => {
-      cancelAnimationFrame(frame);
+      cancel();
       window.removeEventListener("scroll", update);
-      reduced.removeEventListener("change", update);
+      window.removeEventListener("resize", cancel);
+      reduced.removeEventListener("change", preferenceChanged);
+      document.removeEventListener("visibilitychange", visibilityChanged);
     };
   }, [enabled]);
 

@@ -1,10 +1,9 @@
 "use client";
 
-import { Archive, ArrowRightLeft, Armchair, Copy, Grid3X3, List, Plus, Redo2, RefreshCw, RotateCw, Save, Search, Settings2, Trash2, Undo2, Upload, X } from "lucide-react";
+import { Archive, ArrowRightLeft, Armchair, Copy, ChevronDown, Grid3X3, List, Plus, Redo2, RefreshCw, RotateCw, Save, Search, Shapes, Settings2, Trash2, Undo2, Upload, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { confirmDialog } from "@/app/components/ConfirmDialog";
-import { modalOpen } from "@/app/hooks/useModalLayer";
 import { Select } from "@/app/components/Select";
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
@@ -14,6 +13,7 @@ import { RoomPlan } from "../RoomPlan";
 import { SeatStudentPanel } from "./SeatStudentPanel";
 import { SeatMap } from "../SeatMap";
 import { MajorTags } from "../MajorTags";
+import { DetailDialog } from "../DetailDialog";
 import { Notice } from "../Notice";
 import { VirtualRoomPlan } from "../VirtualRoomPlan";
 
@@ -74,6 +74,9 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
   const [gridDirection, setGridDirection] = useState<"row" | "column">("row");
   const [mode, setMode] = useState<"manage" | "edit">("manage");
   const [showRoomSettings, setShowRoomSettings] = useState(false);
+  const [showTools, setShowTools] = useState(false);
+  const [showAlignment, setShowAlignment] = useState<boolean | null>(null);
+  const [showMobileRooms, setShowMobileRooms] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [query, setQuery] = useState("");
   const [movingStudent, setMovingStudent] = useState<Student | null>(null);
@@ -135,15 +138,6 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
     const next = `#rooms/${selectedRoomId}`;
     if (window.location.hash !== next) window.history.replaceState(null, "", next);
   }, [selectedRoomId, active]);
-  useEffect(() => {
-    if (!showCreate) return;
-    // A confirmation raised from the popover sits outside it; leave the popover alone while one is open.
-    const onPointer = (event: MouseEvent) => { if (!modalOpen() && !createMenu.current?.contains(event.target as Node)) setShowCreate(false); };
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.isComposing && !modalOpen()) setShowCreate(false); };
-    document.addEventListener("mousedown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onPointer); document.removeEventListener("keydown", onKey); };
-  }, [showCreate]);
   const dirty = !!room && items !== room.items;
   const metadataDirty = !!room && (roomForm.name !== room.name || roomForm.floor !== (room.floor ?? "") || roomForm.building !== (room.building ?? "") || roomForm.description !== (room.description ?? "") || roomForm.majors !== (room.major_names ?? []).join("、"));
   useEffect(() => {
@@ -276,6 +270,7 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
     setError(""); applyItems(items.map((item) => item.id === selected.id ? next : item));
   };
   const selection = items.filter((item) => selectedIds.includes(item.id) || (!selectedIds.length && item.id === selectedId));
+  const alignmentOpen = showAlignment ?? selection.length > 1;
   const rotateSelected = () => {
     if (!room || !selection.length) return;
     const ids = selection.map((item) => item.id);
@@ -414,22 +409,22 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
     <div className="admin-page rooms-page">
       <header className="page-heading"><div><h1>房间与工位</h1><p className="page-subtitle">在图上管理学生和座位，按需编辑房间布局。</p></div>
         <div className="heading-actions">
-          <button className="secondary-action" disabled={busy || loading} onClick={refresh}><RefreshCw size={16} />刷新</button>
+          <button className="secondary-action room-refresh" aria-label="刷新" title="刷新" disabled={busy || loading} onClick={refresh}><RefreshCw size={16} /><span>刷新</span></button>
           <div className="room-create-menu" ref={createMenu}>
             <button className="primary-action compact" aria-expanded={showCreate} aria-haspopup="dialog" onClick={() => setShowCreate((value) => !value)}><Plus size={16} />新建房间</button>
-            {showCreate && <form className="room-create-form" role="dialog" aria-label="新建房间" onSubmit={createRoom}>
+            {showCreate && <DetailDialog label="新建房间" onClose={() => { if (!busy) setShowCreate(false); }}><form className="dialog-form" onSubmit={createRoom}><h2>新建房间</h2><p className="form-hint">创建后可在布局编辑中添加工位并发布。</p>
               <label><span>楼层</span><input aria-label="新房间楼层" placeholder="例如 3层" value={newFloor} onChange={(e) => setNewFloor(e.target.value)} /></label>
               <label><span>房间号或名称</span><input aria-label="新房间名称" placeholder="例如 301" required autoFocus value={newRoom} onChange={(e) => setNewRoom(e.target.value)} /></label>
               <div className="form-actions"><button className="primary-action compact" disabled={busy}>创建房间</button><button type="button" className="secondary-action compact" onClick={() => setShowCreate(false)}>取消</button></div>
-            </form>}
+            </form></DetailDialog>}
           </div>
         </div>
       </header>
       <Notice error={error} message={message} onClearError={clearError} onClearMessage={clearMessage} />
-      {loading ? <div className="central-message"><RefreshCw className="spin" />正在加载房间…</div> : !rooms.length ? <div className="empty-state admin-empty"><h2>还没有房间</h2><p>点击“新建房间”，创建第一张工位图。</p></div> : <div className="room-editor-layout">
-        <aside className="room-index"><header><h2>房间</h2><span>{rooms.length}</span></header>
+      {loading ? <div className="central-message"><RefreshCw className="spin" />正在加载房间…</div> : !rooms.length ? <div className="empty-state admin-empty"><h2>还没有房间</h2><p>点击“新建房间”，创建第一张工位图。</p></div> : <div className={`room-editor-layout ${mode === "edit" ? "is-editing" : ""} ${showMobileRooms ? "show-mobile-rooms" : ""}`}>
+        <aside id="admin-room-directory" className="room-index"><header><h2>房间</h2><span>{rooms.length}</span><button className="icon-button room-index-close" aria-label="收起房间列表" onClick={() => setShowMobileRooms(false)}><X size={16} /></button></header>
           <div className="editor-floor-tabs" role="group" aria-label="选择楼层">{roomGroups.map((group) => <button key={group.floor} aria-pressed={group.floor === getFloorLabel(rooms.find((entry) => entry.id === selectedRoomId) ?? group.rooms[0])} onClick={() => chooseRoom(group.rooms[0].id)}>{group.floor === "虚拟工位" ? "虚拟分组" : group.floor}</button>)}</div>
-          <div className="editor-room-list">{(roomGroups.find((group) => group.rooms.some((entry) => entry.id === selectedRoomId))?.rooms ?? []).map((entry) => <button key={entry.id} className={selectedRoomId === entry.id ? "active" : ""} aria-pressed={selectedRoomId === entry.id} aria-label={`打开 ${entry.name} 房间`} onClick={() => chooseRoom(entry.id)}>
+          <div className="editor-room-list">{(roomGroups.find((group) => group.rooms.some((entry) => entry.id === selectedRoomId))?.rooms ?? []).map((entry) => <button key={entry.id} className={selectedRoomId === entry.id ? "active" : ""} aria-pressed={selectedRoomId === entry.id} aria-label={`打开 ${entry.name} 房间`} onClick={() => { void chooseRoom(entry.id); setShowMobileRooms(false); }}>
             <strong>{entry.name}</strong>
             {!entry.is_virtual && <span className="room-tab-majors"><MajorTags names={entry.major_names} compact /></span>}
             <small>{entry.is_virtual ? `${entry.seat_counts.occupied ?? 0} 人` : `${entry.seat_counts.available ?? 0} 空闲 / ${Object.values(entry.seat_counts).reduce((sum, count) => sum + count, 0)} 工位`}</small>
@@ -446,13 +441,15 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
         }}>
           <div className="room-workbench-header">
             <div className="room-identity">
-              <strong>{room.name}</strong>
+              <strong className="room-name-desktop">{room.name}</strong><button className="mobile-room-switch" aria-label={`切换房间，当前 ${room.name}`} aria-controls="admin-room-directory" aria-expanded={showMobileRooms} onClick={() => setShowMobileRooms(!showMobileRooms)}><span>{room.name}</span><ChevronDown size={16} /></button>
               {!room.is_virtual && <div className="room-center-affiliation"><span>教研中心：</span><MajorTags names={room.major_names} /></div>}
               <span className="room-status">{roomStatus}</span>
               {draftNote && <span className="draft-flag">{draftNote}</span>}
             </div>
+            <div className="room-workbench-actions">
             {!room.is_virtual && <div className="section-tabs workbench-modes" role="group" aria-label="工作模式"><button aria-pressed={mode === "manage"} onClick={() => changeMode("manage")}>工位管理</button><button aria-pressed={mode === "edit"} onClick={() => changeMode("edit")}>编辑布局</button></div>}
-            {!room.is_virtual && <button className="secondary-action compact" aria-expanded={showRoomSettings} onClick={() => setShowRoomSettings(!showRoomSettings)}><Settings2 size={16} />房间设置</button>}
+            {!room.is_virtual && <button className="room-settings-toggle" aria-label="房间设置" aria-expanded={showRoomSettings} onClick={() => setShowRoomSettings(!showRoomSettings)}><Settings2 size={16} /><span>设置</span></button>}
+            </div>
           </div>
           {showRoomSettings && !room.is_virtual && <form className="room-settings-form" onSubmit={saveRoomDetails}>
             <div className="field-grid three"><label><span>房间名称</span><input required value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} /></label><label><span>楼层</span><input value={roomForm.floor} onChange={(e) => setRoomForm({ ...roomForm, floor: e.target.value })} /></label><label><span>楼栋</span><input value={roomForm.building} onChange={(e) => setRoomForm({ ...roomForm, building: e.target.value })} /></label></div>
@@ -465,13 +462,23 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
             </div>
           </form>}
           {mode === "edit" && !room.is_virtual ? <fieldset disabled={busy}>
-            <div className="layout-toolbar">
-              <div className="tool-group"><button onClick={addSeat}><Armchair />添加工位</button><button aria-expanded={showGrid} onClick={() => setShowGrid(!showGrid)}><Grid3X3 />批量添加</button><button onClick={() => addWall("horizontal")}><Plus />横墙</button><button onClick={() => addWall("vertical")}><Plus />竖墙</button><Select aria-label="添加房间设施" value="" placeholder="添加设施…" onChange={(value) => { if (value) addFixture(value); }} options={Object.entries(fixtureDefaults).map(([type, value]) => ({ value: type, label: value.label }))} /></div>
-              <div className="tool-group"><button aria-label="撤销布局修改" title="撤销（Ctrl / ⌘ Z）" onClick={undo} disabled={!past.length}><Undo2 />撤销</button><button aria-label="重做布局修改" title="重做（Ctrl / ⌘ Shift Z）" onClick={redo} disabled={!future.length}><Redo2 />重做</button><button title="丢弃本次未保存的修改，恢复到上次保存的草稿" disabled={!dirty} onClick={restoreSavedDraft}><RotateCw />恢复到上次保存</button><button className="danger-plain" title="放弃所有未发布的布局修改并退出编辑" onClick={discardDraftAndExit}><X />放弃草稿并退出</button></div>
-              <div className="tool-group tool-group-commit"><button disabled={!dirty} onClick={save}><Save />保存草稿</button><button className="primary-action compact" onClick={publish}><Upload />发布布局</button></div>
+            <div className="layout-toolbar" aria-label="布局编辑操作">
+              <div className="tool-group">
+                <button aria-label="添加工位" onClick={addSeat}><Armchair /><span className="control-label-long">添加工位</span><span className="control-label-short">工位</span></button>
+                <button className="layout-tools-toggle" aria-label="更多工具" aria-controls="layout-tools" aria-expanded={showTools} onClick={() => setShowTools(!showTools)}><span className="control-label-long">更多工具</span><span className="control-label-short">工具</span><ChevronDown /></button>
+              </div>
+              <div className="tool-group tool-group-commit">
+                <button aria-label="保存草稿" disabled={!dirty} onClick={save}><Save /><span className="control-label-long">保存草稿</span><span className="control-label-short">保存</span></button>
+                <button aria-label="发布布局" className="primary-action compact" onClick={publish}><Upload /><span className="control-label-long">发布布局</span><span className="control-label-short">发布</span></button>
+              </div>
             </div>
+            <div id="layout-tools" className="layout-tools-panel" hidden={!showTools}>
+              <div className="tool-group advanced-tools"><button aria-expanded={showGrid} onClick={() => setShowGrid(!showGrid)}><Grid3X3 />批量添加</button><button onClick={() => addWall("horizontal")}><Plus />横墙</button><button onClick={() => addWall("vertical")}><Plus />竖墙</button><Select appearance="action" icon={<Shapes size={16} />} aria-label="添加房间设施" value="" placeholder="添加设施" onChange={(value) => { if (value) addFixture(value); }} options={Object.entries(fixtureDefaults).map(([type, value]) => ({ value: type, label: value.label }))} /></div>
+              <div className="tool-group layout-recovery-actions"><button aria-label="撤销布局修改" title="撤销（Ctrl / ⌘ Z）" onClick={undo} disabled={!past.length}><Undo2 />撤销</button><button aria-label="重做布局修改" title="重做（Ctrl / ⌘ Shift Z）" onClick={redo} disabled={!future.length}><Redo2 />重做</button><button aria-label="恢复上次保存" title="丢弃本次未保存的修改，恢复到上次保存的草稿" disabled={!dirty} onClick={restoreSavedDraft}><RotateCw /><span className="control-label-long">恢复上次保存</span><span className="control-label-short">恢复保存</span></button><button className="danger-plain" aria-label="放弃草稿并退出" title="放弃所有未发布的布局修改并退出编辑" onClick={discardDraftAndExit}><X /><span className="control-label-long">放弃草稿并退出</span><span className="control-label-short">放弃草稿</span></button></div>
             {showGrid && <div className="grid-generator"><label>行<input aria-label="矩阵行数" type="number" min={1} max={20} value={gridRows} onChange={(e) => setGridRows(Number(e.target.value))} /></label><label>列<input aria-label="矩阵列数" type="number" min={1} max={20} value={gridCols} onChange={(e) => setGridCols(Number(e.target.value))} /></label><label>起始编号<input aria-label="矩阵起始编号" type="number" min={1} value={gridStart} onChange={(e) => setGridStart(Number(e.target.value))} /></label><label>编号方向<Select value={gridDirection} onChange={(value) => setGridDirection(value as "row" | "column")} options={[{ value: "row", label: "先行后列" }, { value: "column", label: "先列后行" }]} /></label><button onClick={generateGrid}>添加到空白位置</button></div>}
-            <div className="layout-alignment-toolbar" role="group" aria-label="对齐与分布"><span>{selection.length ? `已选 ${selection.length} 项` : "框选或 Shift 点击多选"}</span>{([["left", "左对齐"], ["cx", "水平居中"], ["right", "右对齐"], ["top", "顶对齐"], ["cy", "垂直居中"], ["bottom", "底对齐"], ["horizontal", "水平等距"], ["vertical", "垂直等距"]] as [Alignment, string][]).map(([value, label]) => <button key={value} disabled={selection.length < (value === "horizontal" || value === "vertical" ? 3 : 2)} onClick={() => arrange(value)}>{label}</button>)}</div>
+              <button className="alignment-toggle" aria-controls="layout-alignment" aria-expanded={alignmentOpen} onClick={() => setShowAlignment(!alignmentOpen)}><span>对齐与分布</span><small>{selection.length > 1 ? `已选 ${selection.length} 项` : "多选后可用"}</small><ChevronDown /></button>
+              <div id="layout-alignment" className="layout-alignment-toolbar" role="group" aria-label="对齐与分布" hidden={!alignmentOpen}><span>框选或 Shift 点击多选</span>{([["left", "左对齐"], ["cx", "水平居中"], ["right", "右对齐"], ["top", "顶对齐"], ["cy", "垂直居中"], ["bottom", "底对齐"], ["horizontal", "水平等距"], ["vertical", "垂直等距"]] as [Alignment, string][]).map(([value, label]) => <button key={value} disabled={selection.length < (value === "horizontal" || value === "vertical" ? 3 : 2)} onClick={() => arrange(value)}>{label}</button>)}</div>
+            </div>
             <div className="layout-edit-body"><SeatMap key={room.id} room={room} items={items} editable={!busy} selectedId={selectedId} selectedIds={selectedIds} onSelect={selectItem} onSelectMany={(ids) => { setSelectedIds(ids); setSelectedId(ids.at(-1) ?? null); }} onItemsChange={applyItems} />
               <aside className="layout-properties"><h3>{selected ? `${selection.length > 1 ? `已选 ${selection.length} 项 · ` : ""}${selected.type === "seat" ? "工位 " : ""}${selected.label}` : "布局属性"}</h3>{selected ? <>
                 <label><span>{selected.type === "seat" ? "工位编号" : "名称"}</span><input value={selected.label} onChange={(e) => modifySelected({ label: e.target.value })} /></label>

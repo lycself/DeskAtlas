@@ -27,6 +27,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - 颜色走语义 token（`--ink`、`--ink-soft`、`--accent-*`、`--danger`、`--warning`、`--success`），浅色、深色两套都要定义；每个 `var(--x)` 都必须有定义。
 
 ## 控件
+- 同一操作组的按钮与下拉共用控件高度、字号、字重和圆角；操作菜单用 `Select appearance="action"`，表单字段保留下沉底色，不在页面里各自拼尺寸。
+- “重试 / 编辑 / 管理”等短操作必须保持单行并保留内容所需宽度，不得靠挤窄操作列换取整页不溢出；长主题、邮箱、文件名分别设置换行方式。
+- 手机操作栏明确分组与位置，不用自动换行配合 `margin-left: auto` 拼出散落的按钮行；空间不足时改为有意安排的网格或工具展开区。
 - 下拉一律用 `components/Select`，不用原生 `<select>`：文字不截断、列表走 portal 不被弹窗裁切、跟随主题，并保留隐藏的原生 select 做 `required` 校验。
 - 确认与提示一律用 `confirmDialog` / `noticeDialog`（`components/ConfirmDialog`），不用 `confirm()` / `alert()`：桌面版 pywebview 不一定弹得出原生对话框。不可逆操作用 `danger: true`，焦点默认落在「取消」。
 - 操作结果用 `toast()` 或 `<Notice>`：提示叠放、互不覆盖，成功自动消失，错误需手动关闭。
@@ -38,6 +41,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - 弹窗里的下拉按 Esc 只收起下拉（`preventDefault` 后弹窗不再处理）。
 
 ## 加载与布局
+- 导航弹簧只在切换状态时修改布局，过渡用位移/缩放承接；不在每个动画帧里修改宽、高、内边距。滚动阈值保留迟滞区，减少动画即时生效，视口改变或页面隐藏时清理动画。
+- 滚动条只在 `globals.css` 统一定义，两轴、portal 下拉都覆盖；WebKit 使用自定义伪元素时同时重置 `scrollbar-width` 和 `scrollbar-color`，否则标准属性会覆盖伪元素外观。页面里不单独改滚动条。
+- 邮件和操作日志用分页及页面滚动，不再给历史卡片设固定高度的独立竖向滚动；画布适应窗口时不能因尺寸取整产生多余滚动条。
+- 操作日志的展开详情必须占满记录宽度，不能塞在摘要最右侧的一列中；宽表在窄窗口改为可读记录列表或明确的局部滚动。
 - 后台外壳（顶栏、侧栏）先出现，会话校验和加载状态只占内容区。
 - `next/dynamic` 必须内联写 `{ loading }`：没有它就没有 Suspense 边界，首次加载会挂起整个工作区。
 - `html { scrollbar-gutter: stable }` 防止弹窗锁滚动、内容长短变化时页面左右跳动。

@@ -13,7 +13,6 @@ export function PublicHeader() {
     <header className="topbar" ref={headerRef}>
       <span className="nav-glass" aria-hidden="true" />
       <Brand />
-      <nav className="public-navigation" aria-label="主导航"><a href="#workspace">工位地图</a></nav>
       <div className="topbar-actions">
         <span className="privacy-note"><LockKeyhole size={14} />校内访问</span>
         <ThemeToggle />

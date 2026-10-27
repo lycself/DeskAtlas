@@ -1,6 +1,6 @@
 "use client";
 
-import { Armchair, CircleAlert, DoorOpen, GraduationCap, Inbox, RefreshCw, Search, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Armchair, CircleAlert, DoorOpen, GraduationCap, Inbox, X, RefreshCw, Search, UserRound, Users, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { useModalLayer } from "@/app/hooks/useModalLayer";
@@ -160,7 +160,7 @@ export function CommandPalette({ pages, onNavigate, onJump, onClose }: {
             onCompositionStart={() => { composing.current = true; }}
             onCompositionEnd={(event) => { composing.current = false; settle(event.currentTarget.value); }}
           />
-          <kbd>Esc</kbd>
+          <button type="button" className="icon-button command-close" aria-label="关闭全局搜索" onClick={onClose}><X size={18} /></button>
         </label>
         <div className="command-results" id="command-results" role="listbox" aria-label="搜索结果" ref={list}>
           {error && <p className="command-note error"><CircleAlert size={16} />{error}</p>}

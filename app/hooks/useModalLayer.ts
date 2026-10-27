@@ -19,10 +19,11 @@ function focusables(root: HTMLElement) {
  * form dialog handles Escape alone instead of closing both. Escape during IME
  * composition only cancels the candidate list.
  */
-export function useModalLayer(panel: RefObject<HTMLElement | null>, onEscape: () => void, { focusPanel = true } = {}) {
+export function useModalLayer(panel: RefObject<HTMLElement | null>, onEscape: () => void, { focusPanel = true, enabled = true } = {}) {
   const escape = useRef(onEscape);
   useEffect(() => { escape.current = onEscape; }, [onEscape]);
   useEffect(() => {
+    if (!enabled) return;
     const id = Symbol("modal");
     layers.push(id);
     const previous = document.activeElement as HTMLElement | null;
@@ -54,7 +55,7 @@ export function useModalLayer(panel: RefObject<HTMLElement | null>, onEscape: ()
       if (!layers.length) document.body.style.overflow = pageOverflow;
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
-  }, [panel, focusPanel]);
+  }, [panel, focusPanel, enabled]);
 }
 
 /** Whether a modal layer is open; global shortcuts stay quiet while one is. */

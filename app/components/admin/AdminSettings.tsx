@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, MailCheck, Plus, RefreshCw, Send, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, CircleAlert, MailCheck, Plus, RefreshCw, Send, SlidersHorizontal } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminBackup } from "./AdminBackup";
@@ -8,12 +8,14 @@ import { AdminTeachers } from "./AdminTeachers";
 
 import { Notice } from "@/app/components/Notice";
 import { Select } from "@/app/components/Select";
+import { RecordPagination } from "@/app/components/RecordPagination";
+import { actionLabel, auditChanges, targetLabels } from "@/app/lib/audit-display";
 import { api } from "@/app/lib/api";
 import type { Major } from "@/app/lib/types";
 
 type Smtp = { host?: string; port?: number; security?: string; username?: string; sender_name?: string; sender_email?: string; has_password?: boolean; is_configured: boolean };
 type Delivery = { id: number; recipient: string; subject: string; status: string; error?: string | null; attempt_count: number; created_at: string };
-type Audit = { id: number; action: string; target_type: string; target_id?: string | null; before_data?: unknown; after_data?: unknown; created_at: string };
+type Audit = { target_name?: string; display_before?: unknown; display_after?: unknown; id: number; action: string; target_type: string; target_id?: string | null; before_data?: unknown; after_data?: unknown; created_at: string };
 
 const tabs: Array<[string, string]> = [
   ["majors", "教研中心选项"],
@@ -32,9 +34,12 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
   const [smtpPassword, setSmtpPassword] = useState("");
   const [testRecipient, setTestRecipient] = useState("");
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [auditState, setAuditState] = useState<"loading" | "ready" | "error">("loading");
   const [audit, setAudit] = useState<Audit[]>([]);
   const [auditQuery, setAuditQuery] = useState("");
   const [auditTarget, setAuditTarget] = useState("");
+  const [deliveryPage, setDeliveryPage] = useState(1);
+  const [auditPage, setAuditPage] = useState(1);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
@@ -42,14 +47,28 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
   const [smtpLoaded, setSmtpLoaded] = useState(false);
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
+  const tabStrip = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState("majors");
+  useEffect(() => {
+    const strip = tabStrip.current;
+    if (!strip) return;
+    const center = () => {
+      const selected = strip.querySelector<HTMLElement>('[aria-pressed="true"]');
+      if (selected) strip.scrollTo({ left: selected.offsetLeft - (strip.clientWidth - selected.offsetWidth) / 2 });
+    };
+    center();
+    const observer = new ResizeObserver(center);
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [tab]);
   const markDirty = () => { dirtyRef.current = true; setDirty(true); };
 
   const load = async (signal?: AbortSignal) => {
+    setAuditState("loading");
     const results = await Promise.allSettled([
       api<Major[]>("/api/admin/majors", { signal }).then((rows) => { setMajors(rows); setNameDrafts({}); }),
       api<Delivery[]>("/api/admin/email-deliveries", { signal }).then(setDeliveries),
-      api<Audit[]>("/api/admin/audit", { signal }).then(setAudit),
+      api<Audit[]>("/api/admin/audit", { signal }).then((rows) => { setAudit(rows); setAuditState("ready"); }).catch((caught) => { if (!signal?.aborted) setAuditState("error"); throw caught; }),
       api<Smtp>("/api/admin/smtp", { signal }).then((config) => { if (!dirtyRef.current) setSmtp(config); setSmtpLoaded(true); }),
     ]);
     if (signal?.aborted) return;
@@ -62,6 +81,11 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
     void load(controller.signal);
     return () => controller.abort();
   }, [active]);
+  useEffect(() => {
+    const syncTab = () => { const value = location.hash.split("/")[1]; if (tabs.some(([id]) => id === value)) setTab(value); };
+    syncTab(); window.addEventListener("hashchange", syncTab);
+    return () => window.removeEventListener("hashchange", syncTab);
+  }, []);
   const run = async (label: string, action: () => Promise<void>) => {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(label); setError(""); setMessage("");
@@ -111,12 +135,17 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
     await refreshDeliveries();
   });
   const auditTargets = useMemo(() => [...new Set(audit.map((row) => row.target_type))].sort(), [audit]);
-  const filteredAudit = audit.filter((row) => (!auditQuery || row.action.toLowerCase().includes(auditQuery.toLowerCase())) && (!auditTarget || row.target_type === auditTarget));
+  const filteredAudit = audit.filter((row) => (!auditQuery || `${actionLabel(row.action)} ${row.target_name ?? ""} ${row.action}`.toLowerCase().includes(auditQuery.trim().toLowerCase())) && (!auditTarget || row.target_type === auditTarget));
+
+  const currentDeliveryPage = Math.min(deliveryPage, Math.max(1, Math.ceil(deliveries.length / 5)));
+  const currentAuditPage = Math.min(auditPage, Math.max(1, Math.ceil(filteredAudit.length / 10)));
+  const pageDeliveries = deliveries.slice((currentDeliveryPage - 1) * 5, currentDeliveryPage * 5);
+  const pageAudit = filteredAudit.slice((currentAuditPage - 1) * 10, currentAuditPage * 10);
 
   return <div className="admin-page">
     <header className="page-heading"><h1>系统设置</h1><button className="secondary-action" disabled={!!busy} onClick={() => void run("refresh", () => load())}><RefreshCw size={16} />刷新</button></header>
     {error && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}<Notice message={message} onClearMessage={() => setMessage("")} />
-    <div className="section-tabs" role="group" aria-label="设置分类">{tabs.map(([id, label]) => <button key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
+    <div ref={tabStrip} className="section-tabs" role="group" aria-label="设置分类">{tabs.map(([id, label]) => <button key={id} aria-pressed={tab === id} onClick={() => { setTab(id); history.replaceState(null, "", `#settings/${id}`); }}>{label}</button>)}</div>
     <AdminTeachers majors={majors} active={active && tab === "teachers"} />
     <div hidden={tab !== "backup"}><AdminBackup active={active && tab === "backup"} /></div>
     <div className="settings-grid">
@@ -133,9 +162,13 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
           </div>;
         })}</div>
       </section>
-      <section className="flat-section smtp-settings" hidden={tab !== "smtp"}><header><div><h2>SMTP 邮件</h2><p>密码加密保存，审批结果不会因邮件失败而回滚。</p></div><MailCheck /></header><form onSubmit={saveSmtp} onChange={markDirty}><fieldset disabled={!!busy || !smtpLoaded}><div className="field-grid two"><label><span>服务器</span><input required value={smtp.host ?? ""} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} /></label><label><span>端口</span><input required type="number" min={1} max={65535} value={smtp.port ?? 587} onChange={(e) => setSmtp({ ...smtp, port: Number(e.target.value) })} /></label></div><div className="field-grid two"><label><span>加密方式</span><Select value={smtp.security ?? "starttls"} onChange={(value) => setSmtp({ ...smtp, security: value })} options={[{ value: "starttls", label: "STARTTLS" }, { value: "ssl", label: "SSL/TLS" }, { value: "none", label: "不加密" }]} /></label><label><span>用户名</span><input value={smtp.username ?? ""} onChange={(e) => setSmtp({ ...smtp, username: e.target.value })} /></label></div><label><span>密码或授权码</span><input type="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} placeholder={smtp.has_password ? "已配置；留空表示不修改" : "请输入密码或授权码"} /></label><div className="field-grid two"><label><span>发件人名称</span><input required value={smtp.sender_name ?? "DeskAtlas"} onChange={(e) => setSmtp({ ...smtp, sender_name: e.target.value })} /></label><label><span>发件邮箱</span><input required type="email" value={smtp.sender_email ?? ""} onChange={(e) => setSmtp({ ...smtp, sender_email: e.target.value })} /></label></div><button className="primary-action compact">{busy === "save" ? "正在保存…" : "保存 SMTP 配置"}</button>{dirty && <p className="form-hint">有未保存的更改</p>}</fieldset></form><form className="smtp-test" onSubmit={test}><input required type="email" aria-label="接收测试邮件的地址" placeholder="接收测试邮件的地址" value={testRecipient} onChange={(e) => setTestRecipient(e.target.value)} /><button disabled={!!busy || !smtpLoaded || !smtp.is_configured || dirty || !testRecipient}><Send size={15} />{busy === "test" ? "正在发送…" : "发送测试"}</button></form><p className="form-hint">测试使用已保存的配置。发送可能需要十几秒，请等待结果。</p></section>
+      <section className="flat-section smtp-settings" hidden={tab !== "smtp"}><header><div><h2>SMTP 邮件</h2><p>密码加密保存，审批结果不会因邮件失败而回滚。</p></div><MailCheck /></header><form onSubmit={saveSmtp} onChange={markDirty}><fieldset disabled={!!busy || !smtpLoaded}><div className="field-grid two"><label><span>服务器</span><input required value={smtp.host ?? ""} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} /></label><label><span>端口</span><input required type="number" min={1} max={65535} value={smtp.port ?? 587} onChange={(e) => setSmtp({ ...smtp, port: Number(e.target.value) })} /></label></div><div className="field-grid two"><label><span>加密方式</span><Select value={smtp.security ?? "starttls"} onChange={(value) => { markDirty(); setSmtp({ ...smtp, security: value }); }} options={[{ value: "starttls", label: "STARTTLS" }, { value: "ssl", label: "SSL/TLS" }, { value: "none", label: "不加密" }]} /></label><label><span>用户名</span><input value={smtp.username ?? ""} onChange={(e) => setSmtp({ ...smtp, username: e.target.value })} /></label></div><label><span>密码或授权码</span><input type="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} placeholder={smtp.has_password ? "已配置；留空表示不修改" : "请输入密码或授权码"} /></label><div className="field-grid two"><label><span>发件人名称</span><input required value={smtp.sender_name ?? "DeskAtlas"} onChange={(e) => setSmtp({ ...smtp, sender_name: e.target.value })} /></label><label><span>发件邮箱</span><input required type="email" value={smtp.sender_email ?? ""} onChange={(e) => setSmtp({ ...smtp, sender_email: e.target.value })} /></label></div><button className="primary-action compact">{busy === "save" ? "正在保存…" : "保存 SMTP 配置"}</button>{dirty && <p className="form-hint">有未保存的更改</p>}</fieldset></form><form className="smtp-test" onSubmit={test}><input required type="email" aria-label="接收测试邮件的地址" placeholder="接收测试邮件的地址" value={testRecipient} onChange={(e) => setTestRecipient(e.target.value)} /><button disabled={!!busy || !smtpLoaded || !smtp.is_configured || dirty || !testRecipient}><Send size={15} />{busy === "test" ? "正在发送…" : "发送测试"}</button></form><p className="form-hint">测试使用已保存的配置。发送可能需要十几秒，请等待结果。</p></section>
     </div>
-    <section className="flat-section log-section" hidden={tab !== "logs"}><header><div><h2>邮件发送记录</h2><p>最近 100 条；失败项目可直接重试。</p></div></header><div className="seat-table-wrap"><table className="data-table"><thead><tr><th>时间</th><th>收件人</th><th>主题</th><th>状态</th><th>尝试</th><th /></tr></thead><tbody>{!deliveries.length && <tr><td colSpan={6} className="table-empty">还没有发送过邮件。</td></tr>}{deliveries.map((row) => <tr key={row.id}><td>{new Date(row.created_at).toLocaleString("zh-CN")}</td><td>{row.recipient}</td><td>{row.subject}</td><td><span className={`state-label ${row.status === "sent" ? "available" : "pending"}`}><i />{row.status === "sent" ? "已发送" : row.status === "pending" ? "等待发送" : "失败"}</span>{row.error && <small>{row.error}</small>}</td><td>{row.attempt_count}</td><td>{row.status !== "sent" && <button className="row-action" disabled={!!busy} onClick={() => retry(row.id)}>{busy === `retry-${row.id}` ? "发送中…" : "重试"}</button>}</td></tr>)}</tbody></table></div></section>
-    <section className="flat-section log-section" hidden={tab !== "logs"}><header><div><h2>操作日志</h2><p>系统保留最近的管理员操作和变更摘要。</p></div><div className="audit-filters"><input aria-label="筛选操作" placeholder="筛选操作" value={auditQuery} onChange={(e) => setAuditQuery(e.target.value)} /><Select aria-label="筛选对象" compact value={auditTarget} onChange={setAuditTarget} options={[{ value: "", label: "全部对象" }, ...auditTargets.map((target) => ({ value: target, label: target }))]} /></div></header><div className="audit-list">{filteredAudit.map((row) => <div key={row.id}><time>{new Date(row.created_at).toLocaleString("zh-CN")}</time><strong>{row.action}</strong><span>{row.target_type}{row.target_id ? ` #${row.target_id}` : ""}</span><details><summary>查看变更</summary><pre>{JSON.stringify({ before: row.before_data, after: row.after_data }, null, 2)}</pre></details></div>)}</div></section>
+    <section id="mail-history" tabIndex={-1} className="flat-section log-section history-section" hidden={tab !== "logs"}><header><div><h2>邮件发送记录</h2><p>最近 100 条；失败项目可直接重试。</p></div></header>
+      <div className="seat-table-wrap delivery-desktop" role="region" aria-label="邮件发送记录列表" tabIndex={0}><table className="data-table delivery-table"><colgroup><col className="delivery-time-col" /><col className="delivery-recipient-col" /><col /><col className="delivery-status-col" /><col className="delivery-attempt-col" /><col className="delivery-action-col" /></colgroup><thead><tr><th>时间</th><th>收件人</th><th>主题</th><th>状态</th><th>尝试</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{!deliveries.length && <tr><td colSpan={6} className="table-empty">还没有发送过邮件。</td></tr>}{pageDeliveries.map((row) => <tr key={row.id}><td><time className="delivery-time" dateTime={row.created_at}><span>{new Date(row.created_at).toLocaleDateString("zh-CN")}</span><span>{new Date(row.created_at).toLocaleTimeString("zh-CN")}</span></time></td><td className="delivery-recipient">{row.recipient}</td><td>{row.subject}</td><td><span className={`state-label ${row.status === "sent" ? "available" : "pending"}`}><i />{row.status === "sent" ? "已发送" : row.status === "pending" ? "等待发送" : "失败"}</span>{row.error && <p className="delivery-error">{row.error}</p>}</td><td>{row.attempt_count}</td><td>{row.status !== "sent" && <button className="row-action" disabled={!!busy} onClick={() => retry(row.id)}>{busy === `retry-${row.id}` ? "发送中…" : "重试"}</button>}</td></tr>)}</tbody></table></div>
+      <div className="delivery-mobile-list" role="region" aria-label="邮件发送记录列表" tabIndex={0}>{!deliveries.length && <p className="muted">还没有发送过邮件。</p>}{pageDeliveries.map((row) => <article className="delivery-record" key={row.id}><header><span className={`state-label ${row.status === "sent" ? "available" : "pending"}`}><i />{row.status === "sent" ? "已发送" : row.status === "pending" ? "等待发送" : "失败"}</span><time dateTime={row.created_at}>{new Date(row.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</time>{row.status !== "sent" && <button className="row-action" disabled={!!busy} onClick={() => retry(row.id)}>{busy === `retry-${row.id}` ? "发送中…" : "重试"}</button>}</header><p className="delivery-recipient">{row.recipient}</p><p className="delivery-subject">{row.subject}</p>{row.error && <p className="delivery-error">{row.error}</p>}<span className="delivery-attempts">已尝试 {row.attempt_count} 次</span></article>)}</div>
+      <RecordPagination label="邮件记录" total={deliveries.length} page={currentDeliveryPage} pageSize={5} onChange={setDeliveryPage} regionId="mail-history" />
+    </section>
+    <section id="audit-history" tabIndex={-1} className="flat-section log-section history-section" hidden={tab !== "logs"}><header><div><h2>操作日志</h2><p>系统保留最近的管理员操作和变更摘要。</p></div><div className="audit-filters"><input aria-label="筛选操作" placeholder="搜索操作或对象名称" value={auditQuery} onChange={(e) => { setAuditQuery(e.target.value); setAuditPage(1); }} /><Select aria-label="筛选对象" compact value={auditTarget} onChange={(value) => { setAuditTarget(value); setAuditPage(1); }} options={[{ value: "", label: "全部对象" }, ...auditTargets.map((target) => ({ value: target, label: targetLabels[target] ?? "系统记录" }))]} /></div></header><div className="audit-list">{!filteredAudit.length && <div className="search-empty" role="status"><h3>{auditState === "loading" ? "正在加载操作记录…" : auditState === "error" ? "操作记录暂时无法加载" : audit.length ? "没有匹配的操作记录" : "暂无操作记录"}</h3><p>{auditState === "error" ? "请检查连接后点击刷新重试。" : "搜索范围为最近 300 条记录，可按操作名称和对象筛选。"}</p>{(auditQuery || auditTarget) && <button className="secondary-action" onClick={() => { setAuditQuery(""); setAuditTarget(""); setAuditPage(1); }}>清空筛选</button>}</div>}{pageAudit.map((row) => <details className="audit-entry" key={row.id}><summary><time dateTime={row.created_at}>{new Date(row.created_at).toLocaleString("zh-CN")}</time><strong>{actionLabel(row.action)}</strong><span className="audit-target">{targetLabels[row.target_type] ?? "系统记录"}{row.target_name ? ` · ${row.target_name}` : ""}</span><span className="audit-disclosure">查看变更<ChevronDown aria-hidden="true" /></span></summary><div className="audit-detail"><dl className="audit-changes">{auditChanges(row.display_before ?? row.before_data, row.display_after ?? row.after_data).map((change) => <div key={change.key}><dt>{change.label}</dt><dd><span>{change.before}</span><span aria-hidden="true"> → </span><strong>{change.after}</strong></dd></div>)}</dl><details className="technical-details"><summary>技术详情</summary><pre>{JSON.stringify({ action: row.action, target: row.target_id, before: row.before_data, after: row.after_data }, null, 2)}</pre></details></div></details>)}</div><RecordPagination label="操作日志" total={filteredAudit.length} page={currentAuditPage} pageSize={10} onChange={setAuditPage} regionId="audit-history" /></section>
   </div>;
 }

@@ -18,7 +18,7 @@ import {
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useSpringHeader } from "@/app/hooks/useSpringHeader";
-import { modalOpen } from "@/app/hooks/useModalLayer";
+import { modalOpen, useModalLayer } from "@/app/hooks/useModalLayer";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -67,6 +67,8 @@ export function AdminPortal() {
   const [ready, setReady] = useState(false);
   const headerRef = useSpringHeader();
   const [section, setSection] = useState<Section>("overview");
+  const sidebar = useRef<HTMLElement>(null);
+  const [mobile, setMobile] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -76,6 +78,8 @@ export function AdminPortal() {
   const focusHeading = useRef(false);
   const main = useRef<HTMLElement>(null);
 
+  useEffect(() => { const media = window.matchMedia("(max-width: 820px)"); const sync = () => { setMobile(media.matches); if (!media.matches) setNavOpen(false); }; sync(); media.addEventListener("change", sync); return () => media.removeEventListener("change", sync); }, []);
+  useModalLayer(sidebar, () => setNavOpen(false), { enabled: mobile && navOpen });
   // The pre-paint script in the root layout already applied the saved state to <html>.
   useEffect(() => { setSidebarCollapsed(document.documentElement.dataset.adminNav === "collapsed"); }, []);
   const toggleSidebar = () => {
@@ -103,7 +107,8 @@ export function AdminPortal() {
     };
     sync();
     window.addEventListener("popstate", sync);
-    return () => window.removeEventListener("popstate", sync);
+    window.addEventListener("hashchange", sync);
+    return () => { window.removeEventListener("popstate", sync); window.removeEventListener("hashchange", sync); };
   }, []);
 
   const currentLabel = sections.find((item) => item.id === section)?.label ?? "";
@@ -186,7 +191,7 @@ export function AdminPortal() {
           </div>
         </header>
       </div>
-      <aside className={`admin-sidebar glass-surface ${navOpen ? "open" : ""}`}>
+      <aside ref={sidebar} tabIndex={-1} inert={mobile && !navOpen} aria-label="管理端导航面板" className={`admin-sidebar glass-surface ${navOpen ? "open" : ""}`}>
         <button className="sidebar-edge-toggle" aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} aria-expanded={!sidebarCollapsed} onClick={toggleSidebar}>
           {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>

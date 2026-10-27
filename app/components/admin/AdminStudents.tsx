@@ -19,6 +19,7 @@ import { FormEvent, Fragment, useCallback, useEffect, useRef, useState } from "r
 import { confirmDialog } from "@/app/components/ConfirmDialog";
 import { Notice } from "@/app/components/Notice";
 import { Select } from "@/app/components/Select";
+import { seatOptions } from "@/app/lib/seat-options";
 import { api } from "@/app/lib/api";
 import type { AdminJump, Bootstrap, Student } from "@/app/lib/types";
 
@@ -31,6 +32,8 @@ type StudentForm = StudentFormValues & { seat_id: string };
 const blank: StudentForm = { ...emptyStudentForm, seat_id: "" };
 
 export function AdminStudents({ active = true, jump = null }: { active?: boolean; jump?: Extract<AdminJump, { section: "students" }> | null }) {
+  const table = useRef<HTMLElement>(null);
+  const scrollAfterPage = useRef(false);
   const [students, setStudents] = useState<Student[]>([]);
   const [freeSeats, setFreeSeats] = useState<Array<{ id: string; label: string }>>([]);
   const [page, setPage] = useState(0);
@@ -98,6 +101,10 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
     setQuery(jump.query); setPage(0); setPlacement(""); setIncompleteOnly(false);
     setSelectedId(jump.studentId ?? null); setDetailTab("profile"); setDetail(null); setEditForm(null); setMoveSeat(""); setMessage("");
   }, [jump]);
+  useEffect(() => {
+    if (!loading && scrollAfterPage.current) { scrollAfterPage.current = false; table.current?.scrollIntoView({ block: "start" }); table.current?.focus({ preventScroll: true }); }
+  }, [loading]);
+  const turnPage = (next: number) => { scrollAfterPage.current = true; setPage(next); };
   const filtered = students;
   const exportParams = new URLSearchParams({ scope: "students", q: query, placement, incomplete_only: String(incompleteOnly) });
   const selected = detail?.id === selectedId ? detail : students.find((student) => student.id === selectedId);
@@ -206,7 +213,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
   return (
     <div className="admin-page">
       <header className="page-heading">
-        <h1>学生名册</h1>
+        <div><h1>学生名册</h1><p className="page-subtitle">查找学生、完善资料，安排与追溯工位分配。</p></div>
         <div className="heading-actions">
           <a className="secondary-action" href={`/api/admin/export/excel?${exportParams}`} download title="导出当前筛选条件下的全部学生，包含所有分页"><FileSpreadsheet size={16} />导出 Excel</a>
           <button className="secondary-action" disabled={loading} onClick={load}><RefreshCw size={16} className={loading ? "spin" : ""} />刷新</button>
@@ -223,7 +230,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
         <label className="check-control"><input type="checkbox" checked={incompleteOnly} onChange={(event) => { setIncompleteOnly(event.target.checked); setPage(0); }} />只看信息待补全</label>
       </div>
 
-      <section className="seat-table-wrap student-table">
+      <section ref={table} tabIndex={-1} aria-label="学生名册列表" className="seat-table-wrap student-table">
         <table className="data-table student-data-table sticky-first-col">
           <thead><tr><th>学生</th><th>导师</th><th>教研中心</th><th>当前工位</th><th>资料</th><th /></tr></thead>
           <tbody>
@@ -272,7 +279,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
                           </section>
                           <section className="move-panel" hidden={detailTab !== "seat"}>
                             <h3><ArrowRightLeft size={16} />修改工位</h3>
-                            <Select aria-label="目标工位" value={String(moveSeat)} onChange={setMoveSeat} placeholder="选择一个空闲工位" options={freeSeats.map((seat) => ({ value: String(seat.id), label: seat.label }))} />
+                            <Select aria-label="目标工位" value={String(moveSeat)} onChange={setMoveSeat} placeholder="选择一个空闲工位" searchable options={seatOptions(freeSeats)} />
                             <button disabled={!moveSeat} onClick={move}>确认移动</button>
                             {selected.current_assignment && <button className="danger-plain" onClick={release}><UserRoundX size={16} />释放当前工位</button>}
                           </section>
@@ -292,7 +299,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
           </tbody>
         </table>
       </section>
-      <div className="pagination"><span>{loading ? "更新中…" : `共 ${total} 名学生`}</span><button disabled={loading || page === 0} onClick={() => setPage(page - 1)}>上一页</button><span>{page + 1} / {Math.max(1, Math.ceil(total / 30))}</span><button disabled={loading || (page + 1) * 30 >= total} onClick={() => setPage(page + 1)}>下一页</button></div>
+      <div className="pagination"><span>{loading ? "更新中…" : `共 ${total} 名学生`}</span><button disabled={loading || page === 0} onClick={() => turnPage(page - 1)}>上一页</button><span aria-live="polite">{page + 1} / {Math.max(1, Math.ceil(total / 30))}</span><button disabled={loading || (page + 1) * 30 >= total} onClick={() => turnPage(page + 1)}>下一页</button></div>
 
       </fieldset>
       {showCreate && (
@@ -303,7 +310,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
             {error && <p className="form-error"><CircleAlert size={16} />{error}</p>}
             <fieldset disabled={busy}>
               <StudentFormFields form={form} onChange={(patch) => setForm({ ...form, ...patch })} options={options} />
-              <label><span>直接分配工位</span><Select value={String(form.seat_id)} onChange={(value) => setForm({ ...form, seat_id: value })} options={[{ value: "", label: "未被分配（虚拟工位）" }, ...freeSeats.map((seat) => ({ value: String(seat.id), label: seat.label }))]} /></label>
+              <label><span>直接分配工位</span><Select value={String(form.seat_id)} onChange={(value) => setForm({ ...form, seat_id: value })} aria-label="直接分配工位" searchable options={seatOptions(freeSeats, true)} /></label>
               <div className="form-actions"><button className="primary-action compact">{busy ? "正在保存…" : "保存学生"}</button><button type="button" className="secondary-action compact" onClick={() => setShowCreate(false)}>取消</button></div>
             </fieldset>
           </form>

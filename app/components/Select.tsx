@@ -1,10 +1,10 @@
 "use client";
 
 import { Check, ChevronDown } from "lucide-react";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-export type SelectOption = { value: string; label: string; disabled?: boolean };
+export type SelectOption = { value: string; label: string; disabled?: boolean; group?: string };
 
 type Props = {
   value: string;
@@ -12,10 +12,14 @@ type Props = {
   options: SelectOption[];
   /** Shown when `value` matches no option. */
   placeholder?: string;
+  searchable?: boolean;
   required?: boolean;
   disabled?: boolean;
   /** Smaller control for toolbars and dense tables. */
   compact?: boolean;
+  /** Menus beside action buttons share their surface and density. */
+  appearance?: "field" | "action";
+  icon?: ReactNode;
   className?: string;
   "aria-label"?: string;
 };
@@ -47,8 +51,11 @@ function place(trigger: HTMLElement): Placement {
  * native select keeps `required` validation and form semantics. Focus stays on the trigger; the
  * list is driven with `aria-activedescendant`.
  */
-export function Select({ value, onChange, options, placeholder = "请选择", required, disabled, compact, className = "", ...rest }: Props) {
+export function Select({ value, onChange, options, placeholder = "请选择", required, disabled, compact, appearance = "field", icon, className = "", searchable = options.length > 8, ...rest }: Props) {
   const id = useId();
+  const anchor = useRef<HTMLSpanElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -58,7 +65,8 @@ export function Select({ value, onChange, options, placeholder = "请选择", re
   const selectedIndex = options.findIndex((option) => option.value === value);
   const selected = options[selectedIndex];
 
-  const enabled = useCallback((index: number) => !!options[index] && !options[index].disabled, [options]);
+  const visible = options.map((option, index) => ({ option, index })).filter(({ option }) => !query || `${option.group ?? ""} ${option.label}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const enabled = useCallback((index: number) => !!options[index] && !options[index].disabled && (!query || `${options[index].group ?? ""} ${options[index].label}`.toLowerCase().includes(query.trim().toLowerCase())), [options, query]);
   const step = (from: number, delta: number) => {
     for (let index = from + delta; index >= 0 && index < options.length; index += delta) if (enabled(index)) return index;
     return from;
@@ -66,29 +74,42 @@ export function Select({ value, onChange, options, placeholder = "请选择", re
   const edge = (fromEnd: boolean) => fromEnd ? step(options.length, -1) : step(-1, 1);
 
   const show = () => {
-    if (disabled || !trigger.current) return;
-    setPosition(place(trigger.current));
+    if (disabled || !anchor.current) return;
+    setQuery("");
+    setPosition(place(anchor.current));
     setActive(selectedIndex >= 0 ? selectedIndex : edge(false));
     setOpen(true);
   };
-  const hide = () => setOpen(false);
+  const hide = (restore = false) => { setOpen(false); setQuery(""); if (restore) requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true })); };
   const choose = (index: number) => {
     if (!enabled(index)) return;
-    hide();
+    hide(searchable);
     if (options[index].value !== value) onChange(options[index].value);
   };
 
   useLayoutEffect(() => {
     if (!open) return;
-    list.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
+    if (searchable) search.current?.focus({ preventScroll: true });
+  }, [open, searchable]);
+  useLayoutEffect(() => {
+    const menu = list.current;
+    const option = menu?.querySelector<HTMLElement>('[data-active="true"]');
+    if (!open || !menu || !option) return;
+    // Scroll only the menu, never its containing page or dialog.
+    const bounds = menu.getBoundingClientRect(), item = option.getBoundingClientRect();
+    if (item.top < bounds.top + 6) menu.scrollTop -= bounds.top + 6 - item.top;
+    else if (item.bottom > bounds.bottom - 6) menu.scrollTop += item.bottom - bounds.bottom + 6;
   }, [open, active]);
 
   useEffect(() => {
     if (!open) return;
-    const reposition = () => { if (trigger.current) setPosition(place(trigger.current)); };
+    const reposition = (event: Event) => {
+      if (event.target instanceof Node && list.current?.contains(event.target)) return;
+      if (anchor.current) setPosition(place(anchor.current));
+    };
     const outside = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (!trigger.current?.contains(target) && !list.current?.contains(target)) hide();
+      if (!anchor.current?.contains(target) && !list.current?.contains(target)) hide();
     };
     window.addEventListener("resize", reposition);
     window.addEventListener("scroll", reposition, true);
@@ -113,7 +134,7 @@ export function Select({ value, onChange, options, placeholder = "请选择", re
     if (open) setActive(match); else if (options[match].value !== value) onChange(options[match].value);
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement | HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || disabled) return;
     const key = event.key;
     if (!open) {
@@ -123,33 +144,35 @@ export function Select({ value, onChange, options, placeholder = "请选择", re
     }
     if (key === "Escape") {
       // Closing the list must not also close the dialog around it.
-      event.preventDefault(); event.stopPropagation(); hide();
+      event.preventDefault(); event.stopPropagation(); hide(searchable);
     } else if (key === "ArrowDown" || key === "ArrowUp") {
       event.preventDefault(); setActive((index) => step(index, key === "ArrowDown" ? 1 : -1));
-    } else if (key === "Home" || key === "End" || key === "PageUp" || key === "PageDown") {
+    } else if (!searchable && (key === "Home" || key === "End" || key === "PageUp" || key === "PageDown")) {
       event.preventDefault(); setActive(edge(key === "End" || key === "PageDown"));
-    } else if (key === "Enter" || key === " ") {
+    } else if (key === "Enter" || (!searchable && key === " ")) {
       event.preventDefault(); choose(active);
     } else if (key === "Tab") {
-      hide();
-    } else if (key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // Let native Tab move from the search input before replacing it with the trigger.
+      if (searchable) requestAnimationFrame(() => hide()); else hide();
+    } else if (!searchable && key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
       seek(key);
     }
   };
 
   const listId = `${id}-list`;
   return (
-    <span className={`select-control ${compact ? "compact" : ""} ${className}`}>
-      <button
+    <span ref={anchor} className={`select-control ${compact ? "compact" : ""} ${appearance === "action" ? "select-action" : ""} ${className}`}>
+      {open && searchable ? <input ref={search} className="select-search" role="combobox" aria-label={`搜索${rest["aria-label"] ?? "选项"}`} aria-expanded="true" aria-controls={listId} aria-autocomplete="list" aria-required={required || undefined} aria-activedescendant={enabled(active) ? `${id}-option-${active}` : undefined} value={query} placeholder="输入关键词筛选" onChange={(event) => { const text = event.target.value; setQuery(text); setActive(options.findIndex((option) => !option.disabled && `${option.group ?? ""} ${option.label}`.toLowerCase().includes(text.trim().toLowerCase()))); }} onKeyDown={onKeyDown} /> : <button
         ref={trigger} type="button" role="combobox" className="select-trigger" disabled={disabled}
         aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
         aria-activedescendant={open && options[active] ? `${id}-option-${active}` : undefined}
         aria-label={rest["aria-label"]} aria-required={required || undefined}
         onClick={() => (open ? hide() : show())} onKeyDown={onKeyDown}
       >
+        {icon && <span className="select-icon" aria-hidden="true">{icon}</span>}
         <span className={selected ? "select-value" : "select-value placeholder"}>{selected?.label ?? placeholder}</span>
         <ChevronDown aria-hidden="true" />
-      </button>
+      </button>}
       <select
         className="select-native" tabIndex={-1} aria-hidden="true" required={required} disabled={disabled}
         value={selected ? value : ""} onChange={(event) => onChange(event.target.value)}
@@ -164,7 +187,9 @@ export function Select({ value, onChange, options, placeholder = "请选择", re
           style={{ left: position.left, top: position.top, bottom: position.bottom, minWidth: position.width, maxHeight: position.maxHeight }}
           onMouseDown={(event) => event.preventDefault()}
         >
-          {options.map((option, index) => (
+          {visible.map(({ option, index }, visibleIndex) => <div key={option.value}>
+            {option.group && option.group !== visible[visibleIndex - 1]?.option.group && <div className="select-group">{option.group}</div>}
+
             <div
               key={option.value} id={`${id}-option-${index}`} role="option" className="select-option"
               aria-selected={index === selectedIndex} aria-disabled={option.disabled || undefined} data-active={index === active}
@@ -173,8 +198,8 @@ export function Select({ value, onChange, options, placeholder = "请选择", re
             >
               <span>{option.label}</span>{index === selectedIndex && <Check aria-hidden="true" />}
             </div>
-          ))}
-          {!options.length && <div className="select-empty">没有可选项</div>}
+          </div>)}
+          {!visible.length && <div className="select-empty">{query ? "没有匹配项，请换个关键词" : "没有可选项"}</div>}
         </div>,
         document.body,
       )}

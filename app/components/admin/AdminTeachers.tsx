@@ -51,6 +51,7 @@ export function AdminTeachers({ majors, active }: { majors: Major[]; active: boo
     finally { setBusy(false); }
   };
 
+  const edit = (t: Teacher) => { setEditing(t.id); setShowForm(true); setDraft({ name: t.name, title: t.title, role: t.role, major_id: t.major_id, is_active: t.is_active }); setMessage(""); };
   const rows = teachers.filter((t) => (!filter || String(t.major_id) === filter) && t.name.includes(query.trim()));
   return <section className="flat-section teacher-settings" hidden={!active}>
     <header><div><h2>教研组教师</h2><p>维护教师所属教研中心、职称和中心职务。停用教师会保留历史资料。</p></div><button className="secondary-action compact" disabled={busy || showForm} onClick={() => { setEditing(null); setDraft(empty); setShowForm(true); setMessage(""); }}><Plus size={16} />添加教师</button></header>
@@ -77,9 +78,10 @@ export function AdminTeachers({ majors, active }: { majors: Major[]; active: boo
       <label><span>搜索教师姓名</span><input aria-label="搜索教师姓名" placeholder="搜索教师姓名" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
       <span>{loading ? "正在加载…" : `${rows.length} 位教师`}</span>
     </div>
-    <div className="seat-table-wrap"><table className="data-table sticky-first-col"><thead><tr><th>教师</th><th>教研中心</th><th>职称</th><th>中心职务</th><th>状态</th><th /></tr></thead>
-      <tbody>{rows.map((t) => <tr key={t.id}><td>{t.name}</td><td>{majors.find((m) => m.id === t.major_id)?.name}</td><td>{t.title || "—"}</td><td>{t.role || "—"}</td><td>{t.is_active ? "启用" : "停用"}</td><td><button className="row-action" disabled={busy} onClick={() => { setEditing(t.id); setShowForm(true); setDraft({ name: t.name, title: t.title, role: t.role, major_id: t.major_id, is_active: t.is_active }); setMessage(""); }}>编辑</button></td></tr>)}
+    <div className="seat-table-wrap teacher-desktop"><table className="data-table sticky-first-col"><thead><tr><th>教师</th><th>教研中心</th><th>职称</th><th>中心职务</th><th>状态</th><th /></tr></thead>
+      <tbody>{rows.map((t) => <tr key={t.id}><td>{t.name}</td><td>{majors.find((m) => m.id === t.major_id)?.name}</td><td>{t.title || "—"}</td><td>{t.role || "—"}</td><td>{t.is_active ? "启用" : "停用"}</td><td><button className="row-action" disabled={busy} onClick={() => edit(t)}>编辑</button></td></tr>)}
         {!rows.length && <tr><td colSpan={6} className="table-empty">{loading ? "正在加载教师…" : "暂无匹配的教师"}</td></tr>}
       </tbody></table></div>
+    <div className="teacher-mobile-list">{rows.map((t) => <article key={t.id}><header><div><strong>{t.name}</strong><span className="muted">{t.is_active ? "启用中" : "已停用"}</span></div><button className="secondary-action compact" disabled={busy} onClick={() => edit(t)} aria-label={`编辑 ${t.name}`}>编辑</button></header><p>{majors.find((m) => m.id === t.major_id)?.name} · {t.title || "未填写职称"}</p>{t.role && <p className="muted">{t.role}</p>}</article>)}{!rows.length && <p className="table-empty">{loading ? "正在加载教师…" : "暂无匹配的教师，请调整搜索或教研中心。"}</p>}</div>
   </section>;
 }

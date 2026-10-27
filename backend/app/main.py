@@ -13,12 +13,13 @@ from sqlalchemy import Text, case, cast, func, select, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, defer
 
+from .arrangement_routes import router as arrangement_router
 from .auditing import audit
 from .backup import router as backup_router
 from .excel_export import router as excel_export_router
 from .config import get_settings
 from .database import SessionLocal, engine, get_db
-from .importer import preview_workbook
+from .importer import preview_workbook, validate_import_row
 from .report_notes import row_notes, update_imported_student_note
 from .layout_utils import repair_imported_equipment
 from .mailer import create_delivery, deliver, encrypt_secret
@@ -108,6 +109,7 @@ app.include_router(setup_router)
 app.include_router(backup_router)
 app.include_router(excel_export_router)
 app.include_router(panel_router)
+app.include_router(arrangement_router)
 
 
 def active_assignment_for_seat(db: Session, seat_id: str) -> Assignment | None:
@@ -1260,10 +1262,37 @@ def list_audit(db: Db, _: Admin, action: str | None = None, target_type: str | N
     if target_type:
         query = query.where(AuditLog.target_type == target_type)
     rows = db.scalars(query).all()
+    ids = defaultdict(set)
+    for row in rows:
+        if row.target_id:
+            ids[row.target_type].add(str(row.target_id))
+        for data in (row.before_data, row.after_data):
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if key in ("seat_id", "room_id", "student_id", "major_id") and value:
+                        ids[key.removesuffix("_id")].add(str(value))
+    labels = {}
+    for kind, model in (("room", Room), ("student", Student), ("major", Major), ("teacher", Teacher)):
+        keys = [int(key) for key in ids[kind] if key.isdigit()]
+        for entity in db.scalars(select(model).where(model.id.in_(keys))):
+            labels[(kind, str(entity.id))] = entity.name
+    if ids["seat"]:
+        for seat in db.scalars(select(Seat).options(joinedload(Seat.room)).where(Seat.id.in_(ids["seat"]))):
+            labels[("seat", str(seat.id))] = f"{seat.room.name} · 工位 {seat.code}"
+    application_keys = [int(key) for key in ids["application"] if key.isdigit()]
+    for application in db.scalars(select(Application).options(joinedload(Application.seat).joinedload(Seat.room)).where(Application.id.in_(application_keys))):
+        labels[("application", str(application.id))] = f"{application.original_data.get('name', '申请人')} · {application.seat.room.name} / {application.seat.code}"
+    def readable(data):
+        if not isinstance(data, dict):
+            return data
+        return {key: labels.get((key.removesuffix("_id"), str(value)), value) if key.endswith("_id") else value for key, value in data.items()}
     return [
         {
             "id": row.id,
             "action": row.action,
+            "target_name": labels.get((row.target_type, str(row.target_id))),
+            "display_before": readable(row.before_data),
+            "display_after": readable(row.after_data),
             "target_type": row.target_type,
             "target_id": row.target_id,
             "before_data": row.before_data,
@@ -1292,8 +1321,9 @@ async def import_preview(db: Db, _: Admin, file: UploadFile = File(...)) -> dict
 def import_commit(payload: ImportCommit, db: Db, _: Admin) -> dict[str, Any]:
     counts = Counter(created_rooms=0, created_seats=0, created_students=0, created_assignments=0, updated=0, equipment=0, skipped=0, unresolved=0)
     room_layouts: dict[int, list[dict[str, Any]]] = {}
+    validated_rows = [validate_import_row(row) for row in payload.rows]
     try:
-        for row in payload.rows:
+        for row in validated_rows:
             if row.get("warnings") and not row.get("confirmed"):
                 counts["unresolved"] += 1
             room_name = str(row.get("room_name") or "").strip()
@@ -1403,10 +1433,10 @@ def import_commit(payload: ImportCommit, db: Db, _: Admin) -> dict[str, Any]:
                 room.published_at = utcnow()
         audit(db, "import.committed", "import", None, after={**dict(counts), "source_remarks": [
             {key: row.get(key) for key in ("source_row", "room_name", "seat_code", "source_note", "source_student_note", "source_seat_note", "student_note", "seat_note")}
-            for row in payload.rows if any(row.get(key) for key in ("source_note", "student_note", "seat_note"))
+            for row in validated_rows if any(row.get(key) for key in ("source_note", "student_note", "seat_note"))
         ], "validation": [
             {key: row.get(key) for key in ("source_row", "room_name", "seat_code", "warnings")}
-            for row in payload.rows if row.get("warnings")
+            for row in validated_rows if row.get("warnings")
         ]})
         db.commit()
     except Exception:

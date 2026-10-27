@@ -21,6 +21,7 @@ type ReviewData = {
 };
 
 export function AdminApplications({ active = true, jump = null }: { active?: boolean; jump?: Extract<AdminJump, { section: "applications" }> | null }) {
+  const [loading, setLoading] = useState(true);
   const [applications, setApplications] = useState<Application[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [options, setOptions] = useState<Bootstrap | null>(null);
@@ -29,10 +30,11 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [emailFailed, setEmailFailed] = useState(false);
   const [result, setResult] = useState("");
 
   const load = async () => {
-    setError("");
+    setLoading(true); setError("");
     try {
       const [apps, roomRows, bootstrap] = await Promise.all([
         api<Application[]>("/api/admin/applications?application_status=pending"),
@@ -45,7 +47,7 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
       setSelectedId((current) => (apps.some((item) => item.id === current) ? current : apps[0]?.id ?? null));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "加载申请失败");
-    }
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { if (active) void load(); }, [active]);
@@ -64,7 +66,6 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
       email: String(data.email ?? ""), enrollment_year: String(data.enrollment_year ?? ""), program_level: String(data.program_level ?? "硕士"), major_id: String(data.major_id ?? ""),
     });
     setReason(selected.rejection_reason ?? "");
-    setResult("");
   }, [selected]);
 
   const selectedRoom = useMemo(() => rooms.find((room) => room.id === selected?.seat.room_id), [rooms, selected]);
@@ -81,7 +82,7 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
       ? { title: `同意 ${form.name} 的申请？`, body: `${seat} 将分配给该学生，结果会通过邮件通知。`, confirmLabel: "同意并分配" }
       : { title: `拒绝 ${form.name} 的申请？`, body: `申请的工位：${seat}。${reason.trim() ? "拒绝原因会随邮件发送给学生。" : "没有填写拒绝原因，邮件中将不包含原因。"}`, confirmLabel: "拒绝申请", danger: true };
     if (!await confirmDialog(question)) return;
-    setBusy(true); setError(""); setResult("");
+    setBusy(true); setError(""); setResult(""); setEmailFailed(false);
     try {
       const response = await api<{ status: string; email_status: string }>(`/api/admin/applications/${selected.id}/review`, {
         method: "POST",
@@ -91,7 +92,8 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
           rejection_reason: reason,
         }),
       });
-      setResult(`${action === "approve" ? "已通过" : "已拒绝"}，邮件${response.email_status === "sent" ? "已发送" : "发送失败，可在设置中重试"}`);
+      setResult(`${form.name} 的申请已${action === "approve" ? "通过，工位已分配" : "拒绝"}。${response.email_status === "sent" ? "通知邮件已发送。" : ""}`);
+      setEmailFailed(response.email_status !== "sent");
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "审批失败");
@@ -100,11 +102,12 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
 
   return (
     <div className="admin-page">
-      <header className="page-heading"><h1>申请审批</h1><button className="secondary-action" onClick={load}><RefreshCw size={16} />刷新</button></header>
+      <header className="page-heading"><div><h1>申请审批</h1><p className="page-subtitle">核对申请资料，分配工位并通知学生。</p></div><button className="secondary-action" disabled={loading || busy} onClick={load}><RefreshCw size={16} />刷新</button></header>
       {error && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}
-      {result && <p className="success-banner"><Mail size={16} />{result}</p>}
-      {!applications.length ? (
-        <div className="empty-state admin-empty"><Inbox /><h2>没有待审批申请</h2><p>新的学生申请会出现在这里。</p></div>
+      {result && <p className="success-banner" role="status"><Check size={16} />{result}</p>}
+      {emailFailed && <p className="warning-banner" role="status"><Mail size={16} />审批已完成，但通知邮件发送失败。<a href="#settings/logs">查看邮件记录并重试</a></p>}
+      {loading && !applications.length ? <div className="central-message" role="status"><RefreshCw className="spin" />正在加载申请…</div> : !applications.length ? (
+        <div className="empty-state admin-empty"><Inbox /><h2>{error ? "申请暂时无法加载" : "没有待审批申请"}</h2><p>{error ? "请检查连接后点击刷新重试。" : "新的学生申请会出现在这里。"}</p></div>
       ) : (
         <div className="review-layout">
           <section className="review-list flat-section">
@@ -119,8 +122,6 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
           </section>
           {selected && form && (
             <section className="review-detail">
-              {/* The same SVG plan students and the room workbench use, so the seat looks identical everywhere. */}
-              {selectedRoom && <div className="review-map"><RoomPlan room={selectedRoom} query="" onSelect={() => undefined} selectedId={selected.seat.id} /></div>}
               <form className="review-form" onSubmit={(event: FormEvent) => event.preventDefault()}>
                 <header><div><p>申请位置</p><h2>{selected.seat.room_name} · 工位 {selected.seat.code}</h2></div><span className="state-label pending"><i />审核中</span></header>
                 <div className="field-grid two">
@@ -137,6 +138,7 @@ export function AdminApplications({ active = true, jump = null }: { active?: boo
                 <label><span>拒绝原因（可留空）</span><textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="填写后会随结果邮件发送给学生" /></label>
                 <div className="review-actions"><button type="button" className="danger-action" disabled={busy} onClick={() => review("reject")}><X size={17} />拒绝</button><button type="button" className="primary-action" disabled={busy} onClick={() => review("approve")}><Check size={17} />同意并分配</button></div>
               </form>
+              {selectedRoom && <details className="review-map"><summary>查看申请位置 · {selected.seat.room_name} / {selected.seat.code}</summary><RoomPlan room={selectedRoom} query="" onSelect={() => undefined} selectedId={selected.seat.id} /></details>}
             </section>
           )}
         </div>

@@ -1,11 +1,12 @@
 "use client";
 
-import { Archive, CircleAlert, Download, FileSpreadsheet, HardDriveDownload, KeyRound, RefreshCw, Trash2, Upload } from "lucide-react";
+import { CircleAlert, Download, FileSpreadsheet, HardDriveDownload, KeyRound, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { confirmDialog, noticeDialog } from "@/app/components/ConfirmDialog";
 import { Notice } from "@/app/components/Notice";
+import { FilePicker } from "../FilePicker";
 import { api } from "@/app/lib/api";
 
 type SetupStatus = { configured: boolean; packaged: boolean; database: string; data_dir?: string | null; version: string };
@@ -30,7 +31,7 @@ export function AdminBackup({ active }: { active: boolean }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
   const busyRef = useRef(false);
-  const fileInput = useRef<HTMLInputElement>(null);
+
 
   const load = async (signal?: AbortSignal) => {
     const results = await Promise.allSettled([
@@ -94,12 +95,11 @@ export function AdminBackup({ active }: { active: boolean }) {
     {error && <p className="form-error page-error"><CircleAlert size={16} />{error}</p>}<Notice message={message} onClearMessage={() => setMessage("")} />
     <div className="settings-grid backup-grid">
       <section className="flat-section backup-section">
-        <header><div><h2>备份与导出</h2><p>备份包包含全部数据、上传文件和邮件配置密钥。换电脑导入后设置本机管理员账号。</p></div><Archive /></header>
+        <header><div><h2>备份与导出</h2><p>备份包包含全部数据、上传文件和邮件配置密钥。换电脑导入后设置本机管理员账号。</p></div><button className="icon-button" aria-label="刷新备份列表" title="刷新备份列表" disabled={!!busy} onClick={() => void run("refresh", () => load())}><RefreshCw size={16} /></button></header>
         <div className="backup-actions">
-          <a className="primary-action compact" href="/api/admin/backup/export" download><Download size={15} />下载备份包</a>
-          <a className="secondary-action" href="/api/admin/export/excel" download><FileSpreadsheet size={15} />导出 Excel 报表</a>
-          <button className="secondary-action" disabled={!!busy} onClick={createBackup}><HardDriveDownload size={15} />{busy === "create" ? "正在备份…" : "备份到本机目录"}</button>
-          <button className="secondary-action" disabled={!!busy} onClick={() => void run("refresh", () => load())}><RefreshCw size={15} />刷新</button>
+          <a className="primary-action compact" aria-label="下载备份包" href="/api/admin/backup/export" download><Download size={15} />下载备份</a>
+          <a className="secondary-action" aria-label="导出 Excel 报表" href="/api/admin/export/excel" download><FileSpreadsheet size={15} />导出报表</a>
+          <button className="secondary-action" aria-label="备份到本机目录" disabled={!!busy} onClick={createBackup}><HardDriveDownload size={15} />{busy === "create" ? "备份中…" : "本机备份"}</button>
         </div>
         <p>Excel 报表包含学生名册、实际工位分配和房间汇总，支持在 Excel 中筛选和打印。学生名册页也可按当前筛选条件导出。</p>
         {status && <dl className="backup-facts">
@@ -108,7 +108,7 @@ export function AdminBackup({ active }: { active: boolean }) {
           {status.data_dir && <div><dt>数据目录</dt><dd><code>{status.data_dir}</code></dd></div>}
           {directory && <div><dt>备份目录</dt><dd><code>{directory}</code></dd></div>}
         </dl>}
-        <div className="seat-table-wrap">
+        <div className="seat-table-wrap backup-desktop">
           <table className="data-table backup-table">
             <thead><tr><th>备份</th><th>时间</th><th>大小</th><th /></tr></thead>
             <tbody>
@@ -122,12 +122,13 @@ export function AdminBackup({ active }: { active: boolean }) {
             </tbody>
           </table>
         </div>
+        <div className="backup-mobile-list">{!items.length && <p className="muted">备份目录里还没有备份。</p>}{items.map((item) => <article className="backup-record" key={item.name}><code>{item.name}</code><div className="backup-record-footer"><span>{new Date(item.created_at).toLocaleDateString("zh-CN")} · {formatSize(item.size)}</span><div className="row-actions"><a className="row-action" href={`/api/admin/backup/file/${encodeURIComponent(item.name)}`} download>下载</a><button className="row-action danger" disabled={!!busy} onClick={() => remove(item.name)}><Trash2 size={13} />删除</button></div></div></article>)}</div>
       </section>
       <div className="backup-side">
         <section className="flat-section restore-section">
           <header><div><h2>从备份包恢复</h2><p>用于把另一台电脑的数据搬到这里，或回退到早先的备份。</p></div><Upload /></header>
           <form onSubmit={restore}>
-            <label><span>备份包（.zip）</span><input ref={fileInput} type="file" accept=".zip,application/zip" onChange={(event) => setRestoreFile(event.target.files?.[0] ?? null)} /></label>
+            <div><span>备份包（.zip）</span><FilePicker file={restoreFile} onChange={setRestoreFile} accept=".zip" maxMB={2048} disabled={!!busy} label="选择备份包" /></div>
             <button className="danger-action" disabled={!!busy || !restoreFile}>{busy === "restore" ? "正在恢复…" : "恢复并替换当前数据"}</button>
           </form>
         </section>

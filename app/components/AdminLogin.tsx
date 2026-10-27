@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+import { FilePicker } from "./FilePicker";
 import { api } from "@/app/lib/api";
 import { Brand } from "./Brand";
 import { ThemeToggle } from "./ThemeToggle";
@@ -129,7 +130,7 @@ export function AdminLogin() {
             <button aria-pressed disabled={loading} onClick={() => setMode("restore")}>从备份包恢复</button>
           </div>
           <form onSubmit={submitRestore}>
-            <label><span>备份包（.zip）</span><input type="file" accept=".zip,application/zip" required onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
+            <div><span>备份包（.zip）</span><FilePicker file={file} onChange={setFile} accept=".zip" maxMB={2048} label="选择备份包" /></div>
             <p className="form-hint">导入房间与学生数据、上传文件和邮件设置。导入后需创建本机管理员账号。</p>
             {error && <p className="form-error"><CircleAlert size={16} />{error}</p>}
             <button className="primary-action" disabled={loading || !file}>{loading ? "正在恢复…" : "导入并设置本机账号"}<ArrowRight size={17} /></button>
