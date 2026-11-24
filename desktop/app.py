@@ -101,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
             window.destroy()
 
     controller.quit_requested = quit_app
+    lock.on_quit_signal(controller.request_quit)
 
     if not args.no_window:
         try:

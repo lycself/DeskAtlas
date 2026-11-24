@@ -376,3 +376,13 @@ def test_installer_never_elevates_or_runs_hidden_shells() -> None:
         assert marker not in script, marker
     autostart = next(line for line in script.splitlines() if line.startswith('name: "autostart"'))
     assert "flags: unchecked" in autostart and "check: isfirstinstall" in autostart
+
+
+def test_installer_closes_the_running_app_through_the_names_hostos_uses() -> None:
+    from desktop import hostos
+
+    script = (Path(__file__).resolve().parents[2] / "installer" / "DeskAtlas.iss").read_text(encoding="utf-8")
+    expand = lambda name: name.replace("DeskAtlas", "{#MyAppName}")  # noqa: E731
+    assert f"'{expand(hostos.INSTANCE_MUTEX)}'" in script
+    assert f"'{expand(hostos.QUIT_EVENT)}'" in script
+    assert "function PrepareToInstall(" in script

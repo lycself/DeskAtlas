@@ -48,16 +48,23 @@ def executable_command() -> list[str]:
 
 # --- single instance -------------------------------------------------------
 
+INSTANCE_MUTEX = f"Local\\{APP_NAME}.SingleInstance"
+# The installer (installer\DeskAtlas.iss) sets this event to ask a running copy to quit before it
+# replaces DeskAtlas.exe; Windows refuses to overwrite an executable that is still running.
+QUIT_EVENT = f"Local\\{APP_NAME}.Quit"
+
+
 class InstanceLock:
     def __init__(self, data_dir: Path) -> None:
         self._handle = None
+        self._quit_event = None
         self._file = None
         self.data_dir = data_dir
 
     def acquire(self) -> bool:
         if IS_WINDOWS:
             kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-            self._handle = kernel32.CreateMutexW(None, False, f"Local\\{APP_NAME}.SingleInstance")
+            self._handle = kernel32.CreateMutexW(None, False, INSTANCE_MUTEX)
             already = kernel32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
             return not already
         import fcntl
@@ -69,6 +76,25 @@ class InstanceLock:
         except BlockingIOError:
             return False
         return True
+
+    def on_quit_signal(self, callback) -> None:
+        """Call `callback` once the installer asks this instance to quit (Windows only)."""
+        if not IS_WINDOWS:
+            return
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32.CreateEventW.restype = ctypes.c_void_p
+        handle = kernel32.CreateEventW(None, True, False, QUIT_EVENT)  # manual reset, initially unset
+        if not handle:
+            log.warning("quit event unavailable; the installer will have to end DeskAtlas itself")
+            return
+        self._quit_event = handle
+
+        def wait() -> None:
+            if kernel32.WaitForSingleObject(ctypes.c_void_p(handle), 0xFFFFFFFF) == 0:  # WAIT_OBJECT_0
+                log.info("installer asked DeskAtlas to quit")
+                callback()
+
+        threading.Thread(target=wait, name="installer-quit", daemon=True).start()
 
     def release(self) -> None:
         if self._file is not None:

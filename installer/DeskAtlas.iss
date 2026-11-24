@@ -63,6 +63,79 @@ Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: no
 [Code]
 const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
+  { Both names must match desktop\hostos.py. }
+  InstanceMutex = 'Local\{#MyAppName}.SingleInstance';
+  QuitEvent = 'Local\{#MyAppName}.Quit';
+  EVENT_MODIFY_STATE = $0002;
+
+function OpenEvent(dwDesiredAccess: Cardinal; bInheritHandle: Integer; lpName: String): THandle;
+  external 'OpenEventW@kernel32.dll stdcall';
+function SetEvent(hEvent: THandle): Integer;
+  external 'SetEvent@kernel32.dll stdcall';
+function CloseHandle(hObject: THandle): Integer;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function AppRunning(): Boolean;
+begin
+  Result := CheckForMutexes(InstanceMutex);
+end;
+
+function WaitForAppExit(Seconds: Integer): Boolean;
+var
+  I: Integer;
+begin
+  for I := 1 to Seconds * 4 do
+  begin
+    if not AppRunning() then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Sleep(250);
+  end;
+  Result := not AppRunning();
+end;
+
+{ 1.6.1 and later wait on this event and quit cleanly (tray, server, database). }
+function AskAppToQuit(): Boolean;
+var
+  Handle: THandle;
+begin
+  Result := False;
+  Handle := OpenEvent(EVENT_MODIFY_STATE, 0, QuitEvent);
+  if Handle <> 0 then
+  begin
+    Result := SetEvent(Handle) <> 0;
+    CloseHandle(Handle);
+  end;
+end;
+
+{ Windows refuses to overwrite DeskAtlas.exe while it runs (MoveFile error 5), and the tray app does not
+  answer Restart Manager's close request, so CloseApplications alone does not free the files. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Signalled: Boolean;
+  ResultCode: Integer;
+begin
+  Result := '';
+  if not AppRunning() then
+    Exit;
+  if not WizardSilent() then
+    if SuppressibleMsgBox('DeskAtlas 正在运行。安装前需要先关闭它，局域网内的访问会短暂中断。' + #13#10 + #13#10 + '现在关闭 DeskAtlas 并继续安装吗？', mbConfirmation, MB_OKCANCEL, IDOK) <> IDOK then
+    begin
+      Result := '请先从任务栏右下角的托盘图标退出 DeskAtlas，再重新运行安装程序。';
+      Exit;
+    end;
+  Signalled := AskAppToQuit();
+  { A silent run is usually the in-app updater, which quits DeskAtlas by itself right after starting this. }
+  if (Signalled or WizardSilent()) and WaitForAppExit(30) then
+    Exit;
+  { Older versions do not listen for the quit event; end them so their files can be replaced. }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if WaitForAppExit(10) then
+    Exit;
+  Result := 'DeskAtlas 仍在运行，无法替换程序文件。请从任务栏右下角的托盘图标退出 DeskAtlas（或在任务管理器中结束 DeskAtlas.exe），再重新运行安装程序。';
+end;
 
 { Autostart is offered on the first install only; afterwards the in-app switch owns it, so an update
   (including a silent one) never re-enables autostart the user turned off. }
