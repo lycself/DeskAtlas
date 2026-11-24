@@ -1,12 +1,11 @@
 "use client";
 
 import {
-  Activity,
   ChevronLeft,
   ChevronRight,
   FileSpreadsheet,
   House,
-  LayoutDashboard,
+  Inbox,
   LogOut,
   Map,
   Menu,
@@ -17,7 +16,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useSpringHeader } from "@/app/hooks/useSpringHeader";
 import { modalOpen, useModalLayer } from "@/app/hooks/useModalLayer";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -27,9 +25,8 @@ import type { AdminJump } from "@/app/lib/types";
 // Every section is split out, and each gets its own loading placeholder: without one there is no
 // Suspense boundary, and loading a section suspends the whole workspace. Next requires the
 // options to be an object literal at each call.
-const AdminApplications = dynamic(() => import("./admin/AdminApplications").then((module) => module.AdminApplications), { loading: () => <SectionPending /> });
 const AdminImport = dynamic(() => import("./admin/AdminImport").then((module) => module.AdminImport), { loading: () => <SectionPending /> });
-const AdminOverview = dynamic(() => import("./admin/AdminOverview").then((module) => module.AdminOverview), { loading: () => <SectionPending /> });
+const AdminInbox = dynamic(() => import("./admin/AdminInbox").then((module) => module.AdminInbox), { loading: () => <SectionPending /> });
 const AdminRooms = dynamic(() => import("./admin/AdminRooms").then((module) => module.AdminRooms), { loading: () => <SectionPending /> });
 const AdminSettings = dynamic(() => import("./admin/AdminSettings").then((module) => module.AdminSettings), { loading: () => <SectionPending /> });
 const AdminStudents = dynamic(() => import("./admin/AdminStudents").then((module) => module.AdminStudents), { loading: () => <SectionPending /> });
@@ -37,11 +34,11 @@ import { Brand } from "./Brand";
 import { CommandPalette } from "./admin/CommandPalette";
 import { ThemeToggle } from "./ThemeToggle";
 
-type Section = "overview" | "applications" | "rooms" | "students" | "import" | "settings";
+type Section = "overview" | "rooms" | "students" | "import" | "settings";
 
+// "overview" is the to-do inbox; the id stays so saved links keep working.
 const sections: Array<{ id: Section; label: string; icon: typeof Map }> = [
-  { id: "overview", label: "运行概览", icon: LayoutDashboard },
-  { id: "applications", label: "申请审批", icon: Activity },
+  { id: "overview", label: "待办", icon: Inbox },
   { id: "rooms", label: "房间与工位", icon: Map },
   { id: "students", label: "学生名册", icon: Users },
   { id: "import", label: "数据导入", icon: FileSpreadsheet },
@@ -57,6 +54,8 @@ function SectionPending({ message = "正在载入…", children }: { message?: s
 /** Sections live in the URL hash (`#rooms`, `#rooms/12`) so reload and the back button keep working. */
 function sectionFromHash(): Section {
   const head = window.location.hash.replace(/^#/, "").split("/")[0];
+  // Review used to be its own page; old links land on the inbox that now holds it.
+  if (head === "applications") return "overview";
   return sections.some((item) => item.id === head) ? (head as Section) : "overview";
 }
 
@@ -65,7 +64,6 @@ export function AdminPortal() {
   const [sessionError, setSessionError] = useState("");
   const [visited, setVisited] = useState<Section[]>(["overview"]);
   const [ready, setReady] = useState(false);
-  const headerRef = useSpringHeader();
   const [section, setSection] = useState<Section>("overview");
   const sidebar = useRef<HTMLElement>(null);
   const [mobile, setMobile] = useState(false);
@@ -175,8 +173,7 @@ export function AdminPortal() {
   return (
     <main className="admin-shell" ref={main}>
       <div className="admin-header-wrapper">
-        <header className="admin-topbar" ref={headerRef}>
-          <span className="nav-glass" aria-hidden="true" />
+        <header className="admin-topbar">
           <Brand href="/admin" label="DeskAtlas 管理端" />
           <button className="mobile-sidebar-toggle icon-button" aria-label="打开导航" onClick={() => setNavOpen(true)}><Menu /></button>
           <div className="admin-breadcrumb"><span>管理端</span><i>/</i><strong>{currentLabel}</strong></div>
@@ -191,18 +188,17 @@ export function AdminPortal() {
           </div>
         </header>
       </div>
-      <aside ref={sidebar} tabIndex={-1} inert={mobile && !navOpen} aria-label="管理端导航面板" className={`admin-sidebar glass-surface ${navOpen ? "open" : ""}`}>
+      <aside ref={sidebar} tabIndex={-1} inert={mobile && !navOpen} aria-label="管理端导航面板" className={`admin-sidebar ${navOpen ? "open" : ""}`}>
         <button className="sidebar-edge-toggle" aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"} aria-expanded={!sidebarCollapsed} onClick={toggleSidebar}>
           {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
-        <div className="admin-brand"><span>管理端</span><button className="sidebar-mobile-close icon-button" aria-label="关闭导航" onClick={() => setNavOpen(false)}><X /></button></div>
+        <div className="admin-sidebar-head"><button className="sidebar-mobile-close icon-button" aria-label="关闭导航" onClick={() => setNavOpen(false)}><X /></button></div>
         <nav aria-label="管理端导航">
           {sections.map((item) => {
             const Icon = item.icon;
             return <button key={item.id} title={item.label} className={section === item.id ? "active" : ""} aria-current={section === item.id ? "page" : undefined} onClick={() => navigate(item.id)}><Icon size={18} /><span>{item.label}</span></button>;
           })}
         </nav>
-        <div className="sidebar-footer"><span>DeskAtlas · 管理端</span></div>
       </aside>
       {navOpen && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setNavOpen(false)} />}
       <section className="admin-main">
@@ -213,8 +209,7 @@ export function AdminPortal() {
           </SectionPending>
         ) : <>
         {sessionError && <p className="form-error page-error">{sessionError}</p>}
-        {visited.includes("overview") && <div data-section="overview" hidden={section !== "overview"}><AdminOverview active={section === "overview"} onNavigate={navigate} /></div>}
-        {visited.includes("applications") && <div data-section="applications" hidden={section !== "applications"}><AdminApplications active={section === "applications"} jump={jump?.section === "applications" ? jump : null} /></div>}
+        {visited.includes("overview") && <div data-section="overview" hidden={section !== "overview"}><AdminInbox active={section === "overview"} jump={jump?.section === "overview" ? jump : null} onNavigate={navigate} onJump={openJump} /></div>}
         {visited.includes("rooms") && <div data-section="rooms" hidden={section !== "rooms"}><AdminRooms active={section === "rooms"} jump={jump?.section === "rooms" ? jump : null} /></div>}
         {visited.includes("students") && <div data-section="students" hidden={section !== "students"}><AdminStudents active={section === "students"} jump={jump?.section === "students" ? jump : null} /></div>}
         {visited.includes("import") && <div data-section="import" hidden={section !== "import"}><AdminImport active={section === "import"} /></div>}

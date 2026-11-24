@@ -54,7 +54,7 @@ function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorC
 
   return (
     <aside className="room-picker" aria-label="选择房间">
-      <div className="directory-heading"><Building2 size={17} /><strong>房间与分组</strong><span>{rooms.filter((room) => !room.is_virtual).length} 间</span></div><p className="directory-summary">实体房间 · {rooms.filter((room) => room.is_virtual).length} 个人员分组</p>
+      <div className="directory-heading"><Building2 size={17} /><strong>房间与分组</strong></div>
       <label className="major-filter"><span>教研中心</span><Select aria-label="按教研中心筛选房间" value={majorFilter} onChange={onMajorChange} options={[
         { value: "", label: "全部教研中心" },
         ...[...new Set(allRooms.flatMap((room) => room.major_names ?? []))].sort((a, b) => a.localeCompare(b, "zh-CN"))
@@ -95,7 +95,6 @@ function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorC
           ))}
         </div>
       </section>
-      <div className="directory-footnote"><span className="state-dot available" />实体房间标注空位，人员分组标注人数</div>
     </aside>
   );
 }
@@ -117,6 +116,9 @@ export function StudentPortal() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  // Students come to find a free seat, so the page opens on every free seat across rooms. A link
+  // naming a room (or the list view) opens that room instead.
+  const [browse, setBrowse] = useState<"rooms" | "vacancies">("vacancies");
   const load = async () => {
     setLoading(true);
     setLoadError("");
@@ -139,16 +141,20 @@ export function StudentPortal() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get(VIEW_PARAM) === "list") setView("list");
+    if (params.has(ROOM_PARAM) || params.has(VIEW_PARAM)) setBrowse("rooms");
     setMajorFilter(params.get(MAJOR_PARAM) ?? "");
     void load();
   }, []);
 
   // Keep the room, view and centre filter in the address bar, so a reload or a shared link
-  // opens the same page. A centre no room belongs to is dropped once the rooms load.
+  // opens the same page. A centre no room belongs to is dropped once the rooms load. The free-seat
+  // overview is the page without a room.
   useEffect(() => {
-    if (selectedRoomId === null) return;
+    // Wait for the rooms: until then the address still holds the room a shared link asked for.
+    const rooms = browse === "rooms";
+    if (!data || (rooms && selectedRoomId === null)) return;
     const url = new URL(window.location.href);
-    const wanted: Array<[string, string]> = [[ROOM_PARAM, String(selectedRoomId)], [VIEW_PARAM, view === "list" ? "list" : ""], [MAJOR_PARAM, majorFilter]];
+    const wanted: Array<[string, string]> = [[ROOM_PARAM, rooms ? String(selectedRoomId) : ""], [VIEW_PARAM, rooms && view === "list" ? "list" : ""], [MAJOR_PARAM, majorFilter]];
     let changed = false;
     for (const [key, value] of wanted) {
       if ((url.searchParams.get(key) ?? "") === value) continue;
@@ -156,7 +162,7 @@ export function StudentPortal() {
       changed = true;
     }
     if (changed) window.history.replaceState(null, "", url);
-  }, [selectedRoomId, view, majorFilter]);
+  }, [data, browse, selectedRoomId, view, majorFilter]);
 
   useEffect(() => {
     if (showRoom.current && !loading) { showRoom.current = false; const top = workspace.current?.getBoundingClientRect().top ?? 0; if (window.innerWidth <= 820 || top < 80) workspace.current?.scrollIntoView({ block: "start" }); }
@@ -199,6 +205,9 @@ export function StudentPortal() {
     }
   };
 
+  const applyFrom = (room: Room, item: LayoutItem) => { setSelectedRoomId(room.id); openSeat(item); };
+  const openRoom = (room: Room) => { setSelectedRoomId(room.id); setBrowse("rooms"); setSelectedItem(null); setQuery(""); showRoom.current = true; };
+
   const submitApplication = async (event: FormEvent) => {
     event.preventDefault();
     if (!selectedItem?.seat) return;
@@ -229,7 +238,7 @@ export function StudentPortal() {
 
       <section className="hero-line">
         <div>
-          <p className="page-eyebrow">校园空间 · 研究生工位</p><h1>工位查询与申请</h1><p className="hero-description">查看房间与人员信息，找到可申请的工位。</p>
+          <h1>工位查询与申请</h1>
         </div>
         {data && data.rooms.length > 0 && (
           <div className="hero-metrics" aria-label="工位概况">
@@ -251,13 +260,18 @@ export function StudentPortal() {
           <p>管理员完成房间布局并发布后，工位会显示在这里。</p>
         </div>
       ) : (
+        <>
+        <div className="segmented-control browse-switch" role="group" aria-label="浏览方式">
+          <button aria-pressed={browse === "vacancies"} onClick={() => setBrowse("vacancies")}>可申请的工位 <b>{data.rooms.reduce((sum, room) => sum + (room.is_virtual ? 0 : room.seat_counts.available ?? 0), 0)}</b></button>
+          <button aria-pressed={browse === "rooms"} onClick={() => setBrowse("rooms")}>按房间浏览</button>
+        </div>
+        {browse === "vacancies" ? <VacancyList rooms={data.rooms} majorFilter={majorFilter} onMajorChange={changeMajor} onApply={applyFrom} onOpenRoom={openRoom} /> :
         <div className="public-workspace">
           <div className={`public-directory ${pickerOpen ? "open" : ""}`}><button className="public-directory-toggle" aria-label="切换房间" aria-expanded={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)}><span>当前{selectedRoom?.is_virtual ? "分组" : "房间"} · <strong>{selectedRoom?.name ?? "请选择"}</strong></span><small>{pickerOpen ? "收起" : "切换"}</small><ChevronDown size={16} /></button><RoomPicker rooms={filteredRooms} allRooms={data.rooms} selected={selectedRoom} majorFilter={majorFilter} onMajorChange={changeMajor} onSelect={(room, reveal = true) => { if (reveal) setPickerOpen(false); showRoom.current = reveal; setSelectedRoomId(room.id); setSelectedItem(null); setExpandedListItemId(null); setQuery(""); }} /></div>
           {selectedRoom && (
             <section ref={workspace} className="workspace-frame" id="workspace" aria-label={`${selectedRoom.name} 工位与人员`}>
               <div className="room-heading">
                 <div className="room-heading-title"><span className="room-number">{selectedRoom.name}</span><div><h2>{selectedRoom.is_virtual ? "人员分组" : "研究生办公室"}</h2>{!selectedRoom.is_virtual && <div className="room-major-tags" aria-label="房间所属教研中心"><MajorTags names={selectedRoom.major_names} /></div>}<p>{[selectedRoom.building, getFloorLabel(selectedRoom)].filter(Boolean).join(" · ")}<span> / </span>{selectedRoom.items.filter((item) => item.type === "seat").length} {selectedRoom.is_virtual ? "人" : "个工位"}</p></div></div>
-                <div className="room-availability"><i />{selectedRoom.is_virtual ? "仅展示人员 · 不可申请" : `${selectedRoom.seat_counts.available ?? 0} 个工位可申请`}</div>
               </div>
               <div className="workspace-toolbar">
                 <label className="search-field">
@@ -336,7 +350,8 @@ export function StudentPortal() {
               )}
             </section>
           )}
-        </div>
+        </div>}
+        </>
       )}
 
       {view === "map" && selectedItem?.seat?.occupant && (
@@ -369,5 +384,44 @@ export function StudentPortal() {
         </DetailDialog>
       )}
     </main>
+  );
+}
+
+/** Every free seat across rooms, grouped by floor and room; a seat number opens the application. */
+function VacancyList({ rooms, majorFilter, onMajorChange, onApply, onOpenRoom }: {
+  rooms: Room[]; majorFilter: string; onMajorChange: (major: string) => void;
+  onApply: (room: Room, item: LayoutItem) => void; onOpenRoom: (room: Room) => void;
+}) {
+  const majors = [...new Set(rooms.flatMap((room) => room.major_names ?? []))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const withSeats = rooms.filter((room) => !room.is_virtual && (!majorFilter || room.major_names?.includes(majorFilter)))
+    .map((room) => ({ room, free: room.items.filter((item) => item.type === "seat" && item.seat?.display_state === "available") }))
+    .filter((entry) => entry.free.length);
+  const floors = groupRoomsByFloor(withSeats.map((entry) => entry.room));
+  const total = withSeats.reduce((sum, entry) => sum + entry.free.length, 0);
+  return (
+    <section className="vacancy-board workspace-frame" aria-label="可申请的工位">
+      <header className="vacancy-toolbar">
+        <div className="vacancy-majors" role="group" aria-label="按教研中心筛选">
+          <button aria-pressed={!majorFilter} onClick={() => onMajorChange("")}>全部</button>
+          {majors.map((major) => <button key={major} aria-pressed={majorFilter === major} onClick={() => onMajorChange(major)}>{major}</button>)}
+        </div>
+        <span>{withSeats.length} 个房间 · {total} 个空位 · 点编号直接申请</span>
+      </header>
+      {!withSeats.length ? <div className="search-empty"><h3>没有空位</h3><p>{majorFilter ? `${majorFilter}的房间暂时没有可申请的工位。` : "暂时没有可申请的工位。"}</p></div> : floors.map((group) => (
+        <div className="vacancy-floor" key={group.floor}>
+          <h2>{group.floor}</h2>
+          {group.rooms.map((room) => {
+            const free = withSeats.find((entry) => entry.room.id === room.id)?.free ?? [];
+            return (
+              <div className="vacancy-room" key={room.id}>
+                <div className="vacancy-room-name"><strong>{room.name}</strong><MajorTags names={room.major_names} compact /></div>
+                <div className="vacancy-seats">{free.map((item) => <button key={item.id} aria-label={`申请 ${room.name} 工位 ${item.label}`} onClick={() => onApply(room, item)}>{item.label}</button>)}</div>
+                <button className="text-action" onClick={() => onOpenRoom(room)}>平面图</button>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </section>
   );
 }

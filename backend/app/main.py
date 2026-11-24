@@ -526,7 +526,9 @@ def review_application(application_id: int, payload: ApplicationReview, db: Db, 
         select(Application)
         .options(joinedload(Application.seat).joinedload(Seat.room))
         .where(Application.id == application_id)
-        .with_for_update()
+        # Lock only the application row: PostgreSQL refuses FOR UPDATE on the nullable side of
+        # the outer joins that eager-load the seat and room.
+        .with_for_update(of=Application)
     )
     if not application:
         raise HTTPException(status_code=404, detail="申请不存在")

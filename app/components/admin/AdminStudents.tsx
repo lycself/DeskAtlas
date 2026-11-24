@@ -213,7 +213,7 @@ export function AdminStudents({ active = true, jump = null }: { active?: boolean
   return (
     <div className="admin-page">
       <header className="page-heading">
-        <div><h1>学生名册</h1><p className="page-subtitle">查找学生、完善资料，安排与追溯工位分配。</p></div>
+        <div><h1>学生名册</h1></div>
         <div className="heading-actions">
           <a className="secondary-action" href={`/api/admin/export/excel?${exportParams}`} download title="导出当前筛选条件下的全部学生，包含所有分页"><FileSpreadsheet size={16} />导出 Excel</a>
           <button className="secondary-action" disabled={loading} onClick={load}><RefreshCw size={16} className={loading ? "spin" : ""} />刷新</button>

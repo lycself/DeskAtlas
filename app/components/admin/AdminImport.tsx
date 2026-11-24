@@ -69,7 +69,7 @@ export function AdminImport({ active = true }: { active?: boolean }) {
   const programLevels = options?.program_levels ?? [];
 
   return <div className="admin-page">
-    <header className="page-heading"><div><h1>数据导入</h1><p className="page-subtitle">同步最新安排，或从标准工位表补充历史记录。</p></div></header>
+    <header className="page-heading"><div><h1>数据导入</h1></div></header>
     <div className="section-tabs" role="group" aria-label="导入方式"><button aria-pressed={mode === "arrangement"} onClick={() => setMode("arrangement")}>最新安排 · 四份文件</button><button aria-pressed={mode === "legacy"} onClick={() => setMode("legacy")}>标准工位表</button></div>
     <div hidden={mode !== "arrangement"}><ArrangementImport /></div>
     <div hidden={mode !== "legacy"}>

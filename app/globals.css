@@ -31,20 +31,20 @@
   --shadow-md: 0 4px 16px rgba(16, 34, 56, .08);
   --shadow-lg: 0 24px 80px rgba(7, 26, 50, .22);
   /* Four corner tiers, plus 999px for pills: */
-  --radius-micro: 6px;     /* chips, tags, keys, dots and other pieces up to ~12px tall */
-  --radius-control: 10px;  /* buttons, fields, tabs, list rows */
-  --radius-card: 16px;     /* cards and panels */
-  --radius-overlay: 20px;  /* dialogs, palettes */
+  --radius-micro: 5px;     /* chips, tags, keys, dots and other pieces up to ~12px tall */
+  --radius-control: 8px;   /* buttons, fields, tabs, list rows */
+  --radius-card: 12px;     /* cards and panels */
+  --radius-overlay: 14px;  /* dialogs, palettes */
   --text-sm: 12px;   /* smallest size used anywhere; contrast ≥ 4.5:1 */
-  --text-md: 14px;
-  --text-base: 15px;
-  --text-title: 15px;  /* sub-section and card titles */
-  --text-lg: 16px;
-  --text-xl: 18px;    /* dialog and section headings */
-  --text-2xl: 22px;   /* page titles */
-  --text-3xl: 24px;   /* hero title, key figures */
-  --text-4xl: 28px;   /* display numbers */
-  --control-height: 40px;
+  --text-md: 13px;   /* body text in dense views: tables, lists, controls */
+  --text-base: 14px;
+  --text-title: 14px;  /* sub-section and card titles */
+  --text-lg: 15px;
+  --text-xl: 16px;    /* dialog and section headings */
+  --text-2xl: 20px;   /* page titles */
+  --text-3xl: 22px;   /* key figures */
+  --text-4xl: 24px;   /* display numbers */
+  --control-height: 36px;
   color-scheme: light;
   --map-paper: #f7f9fd;
   --map-grid-major: #d4deeb;
@@ -66,7 +66,7 @@
   --map-guide: #be4b9b;
   --map-marquee: #00448d14;
   --scrim: rgba(8,12,18,.38);
-  --control-height-compact: 36px;
+  --control-height-compact: 32px;
   --scrollbar-thumb: #7e8b9b;
   --scrollbar-thumb-hover: #5a6c82;
 }
@@ -153,7 +153,6 @@ code { font-family: var(--font-mono); font-size: var(--text-sm); }
 .spin { animation: spin 1s linear infinite; }
 
 /* Surfaces and brand */
-.glass-surface { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-md); }
 /* A plain card: one tone lighter than the page, no outline and no resting shadow. */
 .card-surface { background: var(--surface); border-radius: var(--radius-card); }
 .brand { display: inline-flex; align-items: center; gap: 11px; }
@@ -223,7 +222,7 @@ textarea { resize: vertical; min-height: 80px; }
 .form-intro h3, .form-intro p { margin: 0; }
 .form-intro h3 { font-size: var(--text-lg); }
 .form-intro p { color: var(--ink-soft); font-size: var(--text-sm); margin-top: 5px; }
-.application-form, .review-form { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; }
+.application-form { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; }
 .derived-email { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 10px 12px; border: 0; border-radius: var(--radius-control); background: var(--inset); }
 .derived-email span { color: var(--ink-soft); font-size: var(--text-sm); font-weight: 600; }
 .derived-email strong { font-weight: 500; font-size: var(--text-md); overflow-wrap: anywhere; }
@@ -272,8 +271,8 @@ textarea { resize: vertical; min-height: 80px; }
 .data-table { width: 100%; border-collapse: collapse; text-align: left; font-size: var(--text-md); }
 /* Keep the cells in table layout; place flex/grid content inside each cell. */
 .data-table th, .data-table td { display: table-cell; }
-.data-table th { padding: 10px 14px; letter-spacing: .04em; border-bottom: 1px solid var(--line); white-space: nowrap; padding-block: 16px; font-size: var(--text-sm); font-weight: 600; color: var(--ink-soft); }
-.data-table td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; padding-block: 16px; font-size: var(--text-md); }
+.data-table th { padding: 10px 14px; letter-spacing: .04em; border-bottom: 1px solid var(--line); white-space: nowrap; font-size: var(--text-sm); font-weight: 600; color: var(--ink-soft); }
+.data-table td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: var(--text-md); }
 .data-table tbody tr { transition: background .16s ease; }
 .data-table tbody tr:hover, .data-table tbody tr.selected { background: var(--accent-tint); }
 .data-table td small { display: block; color: var(--ink-soft); font-size: var(--text-sm); max-width: 260px; margin-top: 4px; line-height: 1.5; }
@@ -405,8 +404,6 @@ button, input, textarea, .select-trigger { transition: background-color .15s, co
 button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 3px;
 }
 .muted { color: var(--ink-soft);
-}
-.page-eyebrow { margin: 0 0 8px; font-size: var(--text-sm); font-weight: 600; color: var(--accent-text); letter-spacing: .08em; margin-bottom: 4px;
 }
 .search-empty { min-height: 240px; padding: 36px 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; color: var(--ink-soft);
 }

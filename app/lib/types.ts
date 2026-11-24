@@ -108,7 +108,7 @@ export type Student = {
 export type AdminJump =
   | { section: "rooms"; roomId: number; seatId?: string }
   | { section: "students"; query: string; studentId?: number }
-  | { section: "applications"; applicationId: number };
+  | { section: "overview"; applicationId: number };
 
 export type AdminSearchResults = {
   students: Student[];

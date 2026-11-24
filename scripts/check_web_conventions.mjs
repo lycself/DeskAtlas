@@ -67,6 +67,15 @@ for (const path of [...css, ...code]) {
   }
 }
 
+// 2b. Decoration that restates the page (AGENTS.md "密度与流程"): subtitles under a page title,
+//     eyebrow labels above it and hero descriptions were removed on 2026-11-25.
+for (const path of code) {
+  const source = readFileSync(path, "utf8");
+  for (const match of source.matchAll(/\b(page-subtitle|page-eyebrow|hero-description)\b/g)) {
+    report(path, match.index, source, `${match[1]} — page headings carry only the title and the page's actions`);
+  }
+}
+
 // 3. Native dialogs and selects: the desktop webview cannot always show them, and they ignore the theme.
 for (const path of code) {
   const source = readFileSync(path, "utf8");

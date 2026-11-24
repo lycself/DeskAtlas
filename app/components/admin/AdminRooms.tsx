@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowRightLeft, Armchair, Copy, ChevronDown, Grid3X3, List, Plus, Redo2, RefreshCw, RotateCw, Save, Search, Shapes, Settings2, Trash2, Undo2, Upload, X } from "lucide-react";
+import { Archive, ArrowLeft, ArrowRightLeft, PencilRuler, Armchair, Copy, ChevronDown, Grid3X3, List, Plus, Redo2, RefreshCw, RotateCw, Save, Search, Shapes, Settings2, Trash2, Undo2, Upload, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { confirmDialog } from "@/app/components/ConfirmDialog";
@@ -93,6 +93,13 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
   const [error, setError] = useState("");
   const clearError = useCallback(() => setError(""), []);
   const clearMessage = useCallback(() => setMessage(""), []);
+  // Editing a layout is a focus mode: the sidebar, page heading and room list step aside so the
+  // canvas gets the whole width. The flag lives on <html> because the sidebar is outside this page.
+  useEffect(() => {
+    if (!active || mode !== "edit") return;
+    document.documentElement.dataset.layoutFocus = "";
+    return () => { delete document.documentElement.dataset.layoutFocus; };
+  }, [active, mode]);
 
   const load = async (focus?: number) => {
     try {
@@ -291,7 +298,7 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
     applyItems([...items, ...copies]); setSelectedIds(copies.map((item) => item.id)); setSelectedId(copies.at(-1)?.id ?? null);
   };
   const deleteSelected = () => { if (!selection.length) return;
-    if (selection.some((item) => item.seat?.occupant || item.seat?.display_state === "pending")) { setError("所选工位仍有学生或申请，请先在“工位管理”中移动学生或处理申请。"); return; } const ids = new Set(selection.map((item) => item.id)); applyItems(items.filter((item) => !ids.has(item.id))); setSelectedId(null); setSelectedIds([]); };
+    if (selection.some((item) => item.seat?.occupant || item.seat?.display_state === "pending")) { setError("所选工位仍有学生或申请，请先退出编辑，再移动学生或处理申请。"); return; } const ids = new Set(selection.map((item) => item.id)); applyItems(items.filter((item) => !ids.has(item.id))); setSelectedId(null); setSelectedIds([]); };
   const selectItem = useCallback((item: LayoutItem | null, additive = false) => {
     if (!item) { setSelectedId(null); setSelectedIds([]); return; }
     if (additive) {
@@ -326,7 +333,7 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
       setSelectedId(null); setSelectedIds([]); setShowGrid(false); setMode("manage");
       setRoomForm({ name: updated.name, building: updated.building ?? "", floor: updated.floor ?? "", description: updated.description ?? "", majors: (updated.major_names ?? []).join("、") });
       setShowRoomSettings(false);
-      setMessage("已放弃草稿，返回工位管理");
+      setMessage("已放弃草稿并退出编辑");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "放弃草稿失败"); }
     finally { busyRef.current = false; setBusy(false); }
   };
@@ -407,7 +414,7 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
 
   return (
     <div className="admin-page rooms-page">
-      <header className="page-heading"><div><h1>房间与工位</h1><p className="page-subtitle">在图上管理学生和座位，按需编辑房间布局。</p></div>
+      <header className="page-heading"><div><h1>房间与工位</h1></div>
         <div className="heading-actions">
           <button className="secondary-action room-refresh" aria-label="刷新" title="刷新" disabled={busy || loading} onClick={refresh}><RefreshCw size={16} /><span>刷新</span></button>
           <div className="room-create-menu" ref={createMenu}>
@@ -441,13 +448,14 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
         }}>
           <div className="room-workbench-header">
             <div className="room-identity">
-              <strong className="room-name-desktop">{room.name}</strong><button className="mobile-room-switch" aria-label={`切换房间，当前 ${room.name}`} aria-controls="admin-room-directory" aria-expanded={showMobileRooms} onClick={() => setShowMobileRooms(!showMobileRooms)}><span>{room.name}</span><ChevronDown size={16} /></button>
+              {mode === "edit" && !room.is_virtual && <button className="secondary-action compact" onClick={() => changeMode("manage")}><ArrowLeft size={15} />退出编辑</button>}
+              <strong className="room-name-desktop">{room.name}{mode === "edit" && <span className="editing-tag"> · 编辑布局</span>}</strong><button className="mobile-room-switch" aria-label={`切换房间，当前 ${room.name}`} aria-controls="admin-room-directory" aria-expanded={showMobileRooms} onClick={() => setShowMobileRooms(!showMobileRooms)}><span>{room.name}</span><ChevronDown size={16} /></button>
               {!room.is_virtual && <div className="room-center-affiliation"><span>教研中心：</span><MajorTags names={room.major_names} /></div>}
               <span className="room-status">{roomStatus}</span>
               {draftNote && <span className="draft-flag">{draftNote}</span>}
             </div>
             <div className="room-workbench-actions">
-            {!room.is_virtual && <div className="section-tabs workbench-modes" role="group" aria-label="工作模式"><button aria-pressed={mode === "manage"} onClick={() => changeMode("manage")}>工位管理</button><button aria-pressed={mode === "edit"} onClick={() => changeMode("edit")}>编辑布局</button></div>}
+            {!room.is_virtual && mode === "manage" && <button className="secondary-action compact" onClick={() => changeMode("edit")}><PencilRuler size={15} />编辑布局</button>}
             {!room.is_virtual && <button className="room-settings-toggle" aria-label="房间设置" aria-expanded={showRoomSettings} onClick={() => setShowRoomSettings(!showRoomSettings)}><Settings2 size={16} /><span>设置</span></button>}
             </div>
           </div>
@@ -484,7 +492,7 @@ export function AdminRooms({ active = true, jump = null }: { active?: boolean; j
                 <label><span>{selected.type === "seat" ? "工位编号" : "名称"}</span><input value={selected.label} onChange={(e) => modifySelected({ label: e.target.value })} /></label>
                 <div className="field-grid two">{([['x', 'X 坐标'], ['y', 'Y 坐标'], ['width', '宽度'], ['height', '高度']] as const).map(([key, label]) => <LayoutNumberField key={`${selected.id}-${key}`} label={label} value={selected[key]} onChange={(value) => modifySelected({ [key]: value })} />)}</div>
                 <div className="panel-actions"><button onClick={rotateSelected}><RotateCw />旋转 90°</button><button onClick={duplicateSelected}><Copy />复制</button><button className="danger-plain" onClick={deleteSelected}><Trash2 />移除</button></div>
-                {selected.seat?.occupant && <p className="form-hint">使用人：{selected.seat.occupant.name}。人员调整请切换“工位管理”。</p>}
+                {selected.seat?.occupant && <p className="form-hint">使用人：{selected.seat.occupant.name}。人员调整请先退出编辑。</p>}
               </> : <p>选择工位、墙体或设施后可调整尺寸和坐标；拖动空白区域可框选多个元素。</p>}<p className="keyboard-hint">方向键微调 1 px<br />Shift + 方向键移动 12 px<br />墙体可选中、拖动和调整尺寸</p></aside>
             </div>
           </fieldset> : <>

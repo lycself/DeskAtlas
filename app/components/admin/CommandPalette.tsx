@@ -108,7 +108,7 @@ export function CommandPalette({ pages, onNavigate, onJump, onClose }: {
         title: <Highlight text={application.name} term={hit} />,
         meta: <><Highlight text={application.student_no} term={hit} /> · 申请 {application.room_name} · {application.seat_code} 号</>,
         badge: <span className="state-label pending"><i />待审批</span>,
-        run: () => onJump({ section: "applications", applicationId: application.id }),
+        run: () => onJump({ section: "overview", applicationId: application.id }),
       })) });
     }
     const shown = found.filter((group) => group.entries.length);
