@@ -44,7 +44,10 @@ class ServerThread:
         if not port_available(port, self.host):
             self.error = f"端口 {port} 已被其他程序占用"
             raise ValueError(self.error)
-        config = uvicorn.Config(self.app, host=self.host, port=port, log_config=None, access_log=False, lifespan="on")
+        # Only the local HTTPS proxy may set the client address: the login limit and the loopback-only
+        # panel both judge requests by it, so never widen forwarded_allow_ips (or let the environment do so).
+        config = uvicorn.Config(self.app, host=self.host, port=port, log_config=None, access_log=False, lifespan="on",
+                                proxy_headers=True, forwarded_allow_ips="127.0.0.1")
         server = uvicorn.Server(config)
         failure: list[str] = []
 

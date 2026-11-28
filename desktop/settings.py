@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -14,6 +15,9 @@ from cryptography.fernet import Fernet, InvalidToken
 log = logging.getLogger(__name__)
 OFFICIAL_REPOSITORY = "lycself/DeskAtlas"
 OFFICIAL_RELEASES = f"https://github.com/{OFFICIAL_REPOSITORY}/releases/"
+# One local key encrypts every stored credential; the name predates the HTTPS settings.
+SECRET_KEY_FILE = "update-token.key"
+DOMAIN_PATTERN = re.compile(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 DEFAULT_UPDATE_URL = OFFICIAL_RELEASES + ("latest/download/latest-linux.json" if sys.platform.startswith("linux") else "latest/download/latest.json")
 
 
@@ -27,6 +31,10 @@ class DesktopSettings:
     update_url: str = DEFAULT_UPDATE_URL
     update_token_encrypted: str = field(default="", repr=False)
     last_update_check: str = ""
+    https_enabled: bool = False
+    https_domain: str = ""
+    alidns_key_id: str = ""
+    alidns_secret_encrypted: str = field(default="", repr=False)
     path: Path | None = None
 
     @classmethod
@@ -66,32 +74,63 @@ class DesktopSettings:
             "backup_keep": self.backup_keep,
             "update_url": self.update_url,
             "update_token_configured": bool(self.update_token_encrypted),
+            "https_enabled": self.https_enabled,
+            "https_domain": self.https_domain,
+            "alidns_key_id": self.alidns_key_id,
+            "alidns_secret_configured": bool(self.alidns_secret_encrypted),
         }
 
     def set_update_token(self, token: str) -> None:
         token = token.strip()
-        if not token:
-            self.update_token_encrypted = ""
-            return
-        if not token.isascii() or any(character.isspace() for character in token):
+        if token and (not token.isascii() or any(character.isspace() for character in token)):
             raise ValueError("GitHub token 不能包含空格或换行")
+        self.update_token_encrypted = self._encrypt(token)
+
+    def update_token(self) -> str:
+        return self._decrypt(self.update_token_encrypted, "无法读取 GitHub token，请在运行设置中重新填写并保存")
+
+    def set_https_domain(self, value: str) -> None:
+        domain = value.strip().lower().removeprefix("https://").removeprefix("http://").rstrip("/")
+        if domain and not DOMAIN_PATTERN.fullmatch(domain):
+            raise ValueError("域名格式不正确，请填写例如 physdesk.cn 或 desk.example.com")
+        self.https_domain = domain
+
+    def set_alidns_key_id(self, value: str) -> None:
+        self.alidns_key_id = _access_key(value, "AccessKey ID")
+
+    def set_alidns_secret(self, value: str) -> None:
+        self.alidns_secret_encrypted = self._encrypt(_access_key(value, "AccessKey Secret"))
+
+    def alidns_secret(self) -> str:
+        return self._decrypt(self.alidns_secret_encrypted, "无法读取 AccessKey Secret，请在 HTTPS 设置中重新填写并保存")
+
+    def _cipher(self) -> Fernet:
         if self.path is None:
-            raise ValueError("无法确定 token 保存目录")
-        key_path = self.path.parent / "update-token.key"
+            raise ValueError("无法确定密钥保存目录")
+        key_path = self.path.parent / SECRET_KEY_FILE
         key_path.parent.mkdir(parents=True, exist_ok=True)
         if not key_path.exists():
             with key_path.open("xb") as handle:
                 key_path.chmod(0o600)
                 handle.write(Fernet.generate_key())
-        self.update_token_encrypted = Fernet(key_path.read_bytes()).encrypt(token.encode()).decode()
+        return Fernet(key_path.read_bytes())
 
-    def update_token(self) -> str:
-        if not self.update_token_encrypted:
+    def _encrypt(self, value: str) -> str:
+        return self._cipher().encrypt(value.encode()).decode() if value else ""
+
+    def _decrypt(self, value: str, failure: str) -> str:
+        if not value:
             return ""
         try:
-            if self.path is None:
-                raise ValueError("没有设置路径")
-            key = (self.path.parent / "update-token.key").read_bytes()
-            return Fernet(key).decrypt(self.update_token_encrypted.encode()).decode()
+            if self.path is None or not (self.path.parent / SECRET_KEY_FILE).is_file():
+                raise ValueError("密钥文件不存在")
+            return self._cipher().decrypt(value.encode()).decode()
         except (OSError, InvalidToken, ValueError) as exc:
-            raise ValueError("无法读取 GitHub token，请在运行设置中重新填写并保存") from exc
+            raise ValueError(failure) from exc
+
+
+def _access_key(value: str, label: str) -> str:
+    value = value.strip()
+    if value and (not value.isascii() or any(character.isspace() for character in value) or len(value) > 128):
+        raise ValueError(f"{label} 不能包含空格或中文，请从阿里云复制完整的值")
+    return value

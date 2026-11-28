@@ -22,6 +22,10 @@ datas = [
     (str(ROOT / "backend" / "alembic"), "backend/alembic"),
     (str(ROOT / "backend" / "alembic.ini"), "backend"),
 ]
+# HTTPS proxy built by CI (xcaddy with the alidns module); copied as-is, desktop/https.py finds it under caddy/.
+caddy_exe = ROOT / "installer" / "vendor" / ("caddy.exe" if sys.platform == "win32" else "caddy")
+if caddy_exe.is_file():
+    datas.append((str(caddy_exe), "caddy"))
 datas += collect_data_files("webview")
 datas += collect_data_files("qrcode")
 

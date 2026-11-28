@@ -26,6 +26,11 @@
 .panel-toggle { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .panel-toggle strong { font-size: var(--text-md); font-weight: 600; }
 .panel-toggle small { display: block; margin-top: 2px; color: var(--ink-soft); font-size: var(--text-sm); line-height: 1.45; }
+.panel-https-status { margin: 0; display: flex; align-items: flex-start; gap: 8px; color: var(--ink-soft); font-size: var(--text-md); line-height: 1.5; overflow-wrap: anywhere; }
+.panel-https-status svg { flex: none; margin-top: 3px; }
+.panel-https-status.ok svg { color: var(--success-text); }
+.panel-https-status.error { color: var(--danger); }
+.panel-https-status.pending svg { color: var(--accent-text); }
 .panel-form { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
 .panel-inline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .panel-field { display: flex; flex-direction: column; gap: 6px; }

@@ -20,6 +20,7 @@ uploads/
 /build/
 /installer/dist/
 /installer/build/
+/installer/vendor/
 /installer/*.ico
 /desktop/assets/generated/
 backend/app/_build_version.py

@@ -359,7 +359,8 @@ def admin_login(payload: AdminLogin, request: Request, response: Response) -> di
         "admin_session",
         create_session(payload.username),
         httponly=True,
-        secure=settings.cookie_secure,
+        # Behind the bundled HTTPS proxy the scheme comes from X-Forwarded-Proto; plain intranet http keeps working.
+        secure=settings.cookie_secure or request.url.scheme == "https",
         samesite="strict",
         max_age=settings.session_max_age_seconds,
         path="/",

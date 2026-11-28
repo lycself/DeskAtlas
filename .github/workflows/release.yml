@@ -111,6 +111,25 @@ jobs:
       - name: Generate icon
         run: python installer/make_icon.py
 
+      - uses: actions/setup-go@v7
+        if: matrix.platform == 'windows'
+        with:
+          go-version: stable
+          cache: false
+
+      # HTTPS for the intranet: Caddy gets certificates through an Alibaba Cloud DNS challenge.
+      - name: Build Caddy with the Alibaba Cloud DNS module
+        if: matrix.platform == 'windows'
+        shell: bash
+        env:
+          CADDY_VERSION: v2.11.9
+          ALIDNS_VERSION: v1.0.29
+          XCADDY_VERSION: v0.4.7
+        run: |
+          go install "github.com/caddyserver/xcaddy/cmd/xcaddy@${XCADDY_VERSION}"
+          xcaddy build "$CADDY_VERSION" --with "github.com/caddy-dns/alidns@${ALIDNS_VERSION}" --output installer/vendor/caddy.exe
+          installer/vendor/caddy.exe list-modules | grep -x "dns.providers.alidns"
+
       - name: Build Windows application
         if: matrix.platform == 'windows'
         run: python -m PyInstaller installer/deskatlas.spec --noconfirm --clean
@@ -125,6 +144,17 @@ jobs:
         run: |
           if (-not (Test-Path "dist\DeskAtlas\DeskAtlas.exe")) { throw "bundle missing" }
           if (-not (Test-Path "dist\DeskAtlas\_internal\static\index.html")) { throw "static site missing" }
+          if (-not (Test-Path "dist\DeskAtlas\_internal\caddy\caddy.exe")) { throw "caddy missing" }
+
+      - name: Validate the generated Caddy config
+        if: matrix.platform == 'windows'
+        shell: bash
+        env:
+          DESKATLAS_ALIDNS_KEY_ID: ci-placeholder
+          DESKATLAS_ALIDNS_SECRET: ci-placeholder
+        run: |
+          python -c 'import json, pathlib; from desktop.https import build_config; pathlib.Path("caddy-check.json").write_text(json.dumps(build_config("example.com", 8080, pathlib.Path("caddy-check"), redirect_http=True)))'
+          dist/DeskAtlas/_internal/caddy/caddy.exe validate --config caddy-check.json
 
       - name: Install Inno Setup
         if: matrix.platform == 'windows'

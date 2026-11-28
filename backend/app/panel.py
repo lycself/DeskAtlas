@@ -39,6 +39,10 @@ class PanelSettings(BaseModel):
     backup_keep: int | None = Field(default=None, ge=1, le=365)
     update_url: str | None = Field(default=None, max_length=500)
     update_token: str | None = Field(default=None, max_length=500, repr=False)
+    https_enabled: bool | None = None
+    https_domain: str | None = Field(default=None, max_length=260)
+    alidns_key_id: str | None = Field(default=None, max_length=128)
+    alidns_secret: str | None = Field(default=None, max_length=128, repr=False)
 
 
 def lan_addresses() -> list[dict[str, Any]]:

@@ -17,6 +17,7 @@ from backend.app.panel import lan_addresses
 from backend.app.version import VERSION
 
 from . import hostos
+from .https import HttpsProxy
 from .server import ServerThread
 from .settings import DesktopSettings
 from .updater import Updater
@@ -33,17 +34,19 @@ class DesktopController:
         self.settings = settings
         self.desktop = desktop
         self.engine = engine
-        self.server = ServerThread(app)
+        self.tray_status: Callable[[str, str | None], None] | None = None
+        self.proxy = HttpsProxy(self.data_dir / "caddy", on_change=self._push_tray_status)
+        self.server = ServerThread(app, host=self._bind_host())
         self.keep_awake = hostos.KeepAwake()
         self.updater = Updater(self.data_dir, lambda: self.desktop.update_url, self._on_update_installing,
                                token_getter=self.desktop.update_token)
         self.window = None
-        self.tray_status: Callable[[str, str | None], None] | None = None
         self.quit_requested: Callable[[], None] | None = None
         self._stop = threading.Event()
         self._scheduler: threading.Thread | None = None
         self._last_update_check: datetime | None = None
         self._backup_lock = threading.Lock()
+        self._network_lock = threading.Lock()
 
     # --- lifecycle ---------------------------------------------------------
 
@@ -58,6 +61,7 @@ class DesktopController:
             self.server.start(self.desktop.port)
         except ValueError as exc:
             log.error("server failed to start: %s", exc)
+        self._start_proxy()
         self.keep_awake.set(self.desktop.prevent_sleep)
         self._scheduler = threading.Thread(target=self._scheduler_loop, name="scheduler", daemon=True)
         self._scheduler.start()
@@ -66,6 +70,7 @@ class DesktopController:
     def shutdown(self) -> None:
         self._stop.set()
         self.keep_awake.close()
+        self.proxy.stop()
         self.server.stop()
 
     def request_quit(self) -> None:
@@ -80,7 +85,15 @@ class DesktopController:
     def local_url(self, path: str = "") -> str:
         return f"http://127.0.0.1:{self.server.port or self.desktop.port}{path}"
 
+    def https_active(self) -> bool:
+        """HTTPS replaces plain LAN access only when it is switched on, complete, and Caddy is bundled."""
+        desktop = self.desktop
+        return bool(desktop.https_enabled and desktop.https_domain and desktop.alidns_key_id
+                    and desktop.alidns_secret_encrypted and self.proxy.available)
+
     def display_url(self) -> str:
+        if self.https_active():
+            return f"https://{self.desktop.https_domain}"
         port = self.server.port or self.desktop.port
         custom = self.desktop.public_address.strip()
         if custom:
@@ -114,6 +127,7 @@ class DesktopController:
             "log_file": str(self.settings.log_dir / "deskatlas.log"),
             "last_backup": self.last_backup(),
             "update": dict(self.updater.info),
+            "https": {**self.proxy.info(), "supported": self.proxy.available, "active": self.https_active()},
         }
 
     def update_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
@@ -133,6 +147,21 @@ class DesktopController:
             self.desktop.update_url = str(changes["update_url"]).strip()
         if "public_address" in changes:
             self.desktop.public_address = str(changes["public_address"]).strip()
+        https_before = self._https_signature()
+        if "https_domain" in changes:
+            self.desktop.set_https_domain(str(changes["https_domain"]))
+        if "alidns_key_id" in changes:
+            self.desktop.set_alidns_key_id(str(changes["alidns_key_id"]))
+        if "alidns_secret" in changes:
+            self.desktop.set_alidns_secret(str(changes["alidns_secret"]))
+        if "https_enabled" in changes:
+            enable = bool(changes["https_enabled"])
+            if enable and not self.proxy.available:
+                raise ValueError("此版本没有附带 HTTPS 组件，请安装官方 Windows 版")
+            if enable and not (self.desktop.https_domain and self.desktop.alidns_key_id and self.desktop.alidns_secret_encrypted):
+                raise ValueError("请先填写域名、AccessKey ID 和 AccessKey Secret")
+            self.desktop.https_enabled = enable
+        https_changed = self._https_signature() != https_before
         new_port = int(changes["port"]) if "port" in changes else None
         if new_port is not None and new_port != self.desktop.port:
             from .server import port_available
@@ -141,7 +170,12 @@ class DesktopController:
                 raise ValueError(f"端口 {new_port} 已被其他程序占用，请换一个")
             self.desktop.port = new_port
             response = {"restarting": True, "url": f"http://127.0.0.1:{new_port}", "message": "端口已修改，服务正在重启"}
+            https_changed = False  # the restart below re-applies the network settings anyway
             threading.Thread(target=self._restart_server, args=(new_port,), name="restart", daemon=True).start()
+        if https_changed:
+            response["message"] = ("HTTPS 已启用，正在申请证书…" if self.https_active() else
+                                   "HTTPS 已关闭，恢复局域网 http 访问" if "https_enabled" in changes else "HTTPS 设置已保存")
+            threading.Thread(target=self._apply_network, name="https-apply", daemon=True).start()
         self.desktop.save()
         response["settings"] = {**self.desktop.public(), "autostart": hostos.autostart_enabled()}
         return response
@@ -184,12 +218,45 @@ class DesktopController:
 
     # --- internals ---------------------------------------------------------
 
-    def _restart_server(self, port: int) -> None:
-        time.sleep(0.6)  # let the HTTP response reach the panel before the listener goes away
+    def _bind_host(self) -> str:
+        # With HTTPS on, only Caddy may reach the server, so nobody can bypass TLS on the LAN port.
+        return "127.0.0.1" if self.https_active() else "0.0.0.0"
+
+    def _https_signature(self) -> tuple:
+        desktop = self.desktop
+        return (self.https_active(), desktop.https_domain, desktop.alidns_key_id, desktop.alidns_secret_encrypted)
+
+    def _start_proxy(self) -> None:
+        if not self.https_active():
+            self.proxy.stop()
+            return
+        if not self.server.running:
+            return
         try:
-            self.server.restart(port)
+            secret = self.desktop.alidns_secret()
         except ValueError as exc:
-            log.error("restart on port %s failed: %s", port, exc)
+            self.proxy.fail(str(exc))
+            return
+        self.proxy.start(self.desktop.https_domain, self.server.port or self.desktop.port, self.desktop.alidns_key_id, secret)
+
+    def _apply_network(self, port: int | None = None) -> None:
+        """Rebind the server if HTTPS changed who may reach it, then (re)start or stop Caddy."""
+        with self._network_lock:
+            time.sleep(0.6)  # let the HTTP response reach the panel before the listener goes away
+            port = port or self.server.port or self.desktop.port
+            host = self._bind_host()
+            if host != self.server.host or port != self.server.port or not self.server.running:
+                self.proxy.stop()
+                self.server.host = host
+                try:
+                    self.server.restart(port)
+                except ValueError as exc:
+                    log.error("restart on %s:%s failed: %s", host, port, exc)
+            self._start_proxy()
+            self._push_tray_status()
+
+    def _restart_server(self, port: int) -> None:
+        self._apply_network(port)
         if self.window is not None:
             self.window.load(self.panel_url())
         self._push_tray_status()
@@ -203,6 +270,8 @@ class DesktopController:
             return
         if self.server.error and not self.server.running:
             self.tray_status("error", self.server.error)
+        elif self.https_active() and self.proxy.status in {"error", "restarting"}:
+            self.tray_status("error", f"HTTPS：{self.proxy.error}")
         elif self.updater.info["status"] in {"available", "ready"}:
             self.tray_status("update", f"有新版本 {self.updater.info.get('latest')}")
         else:

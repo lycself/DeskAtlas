@@ -161,6 +161,16 @@ Ubuntu 的托盘由系统 AppIndicator 支持；其他 GNOME 桌面需要启用 
 - 操作：打开学生端 / 管理端、立即备份、打开数据目录 / 备份目录 / 日志、检查更新、立即更新。
 - 托盘图标颜色：绿色运行中，黄色有新版本，红色服务异常。
 
+### HTTPS 域名访问（Windows）
+
+Windows 安装包附带一个 Caddy（CI 用 xcaddy 构建，含 `caddy-dns/alidns` 模块，版本固定在 `release.yml`）。在状态面板“HTTPS 域名访问”里填写域名和阿里云 AccessKey 并打开开关后：
+
+- Caddy 监听 443（80 空闲时顺带把 http 跳转到 https），通过阿里云 DNS 验证向 Let's Encrypt 申请证书并自动续期，电脑不需要能从校外访问；
+- 内嵌服务改为只监听 `127.0.0.1`，原来的 `http://IP:端口` 停止服务，学生只能走 `https://域名`；
+- 后端只信任来自本机代理的 `X-Forwarded-*`，登录限流和“状态面板只能在本机打开”按真实来源 IP 判断，Caddy 也不转发 `/panel` 和 `/api/panel`；经 HTTPS 登录时管理员 cookie 带 `Secure`。
+
+准备工作：在阿里云云解析里把域名的 A 记录指向这台电脑的 IP；建一个只开 OpenAPI 访问的 RAM 用户并授予 `AliyunDNSFullAccess`。Secret 用本机密钥加密保存在 `settings.json`，只通过环境变量交给 Caddy。Caddy 的配置、证书和日志在数据目录的 `caddy/` 下，申请失败的原因会显示在面板上。第一次启用时 Windows 会询问是否允许 caddy 访问网络，需要选“允许”。
+
 ### 数据目录
 
 默认位于 `%LOCALAPPDATA%\DeskAtlas`（可用 `--data-dir` 或环境变量 `DESKATLAS_DATA_DIR` 覆盖），内含：

@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Check, CircleAlert, Copy, ExternalLink, FolderOpen, RefreshCw, ScrollText, Users } from "lucide-react";
+import { Archive, Check, CircleAlert, Copy, ExternalLink, FolderOpen, LockKeyhole, RefreshCw, ScrollText, Users } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { confirmDialog } from "@/app/components/ConfirmDialog";
@@ -10,7 +10,12 @@ import { ThemeToggle } from "./ThemeToggle";
 
 type Address = { address: string; primary: boolean };
 type UpdateInfo = { status: string; latest?: string | null; notes?: string | null; error?: string | null; checked_at?: string | null };
-type PanelSettings = { port: number; public_address: string; autostart: boolean; prevent_sleep: boolean; auto_backup: boolean; backup_keep: number; update_url: string; update_token_configured: boolean };
+type PanelSettings = {
+  port: number; public_address: string; autostart: boolean; prevent_sleep: boolean; auto_backup: boolean; backup_keep: number; update_url: string; update_token_configured: boolean;
+  https_enabled: boolean; https_domain: string; alidns_key_id: string; alidns_secret_configured: boolean;
+};
+type HttpsInfo = { supported: boolean; active: boolean; status: string; domain: string; error?: string | null; certificate_expires?: string | null; certificate_valid: boolean };
+type SettingsChanges = Partial<PanelSettings> & { update_token?: string; alidns_secret?: string };
 type PanelState = {
   available: boolean;
   version: string;
@@ -26,6 +31,7 @@ type PanelState = {
   backup_dir?: string;
   last_backup?: string | null;
   update?: UpdateInfo;
+  https?: HttpsInfo;
 };
 
 const updateLabels: Record<string, string> = {
@@ -47,6 +53,7 @@ export function PanelApp() {
   const [busy, setBusy] = useState("");
   const [updateToken, setUpdateToken] = useState("");
   const [clearUpdateToken, setClearUpdateToken] = useState(false);
+  const [alidnsSecret, setAlidnsSecret] = useState("");
   const busyRef = useRef(false);
   const formTouched = useRef(false);
 
@@ -74,10 +81,11 @@ export function PanelApp() {
     finally { busyRef.current = false; setBusy(""); }
   };
 
-  const saveSettings = (changes: Partial<PanelSettings> & { update_token?: string }, label = "save") => run(label, async () => {
+  const saveSettings = (changes: SettingsChanges, label = "save") => run(label, async () => {
     const result = await api<{ restarting?: boolean; url?: string; message?: string }>("/api/panel/settings", { method: "PUT", body: JSON.stringify(changes) });
     formTouched.current = false;
     if (changes.update_token !== undefined) { setUpdateToken(""); setClearUpdateToken(false); }
+    if (changes.alidns_secret !== undefined) setAlidnsSecret("");
     if (result.restarting && result.url) {
       setMessage(`端口已修改，正在用新地址重新打开面板…`);
       window.setTimeout(() => window.location.replace(`${result.url}/panel`), 1800);
@@ -99,6 +107,27 @@ export function PanelApp() {
     void saveSettings({ [key]: value } as Partial<PanelSettings>, key);
   };
 
+  const httpsFields = (current: PanelSettings): SettingsChanges => ({
+    https_domain: current.https_domain.trim(), alidns_key_id: current.alidns_key_id.trim(),
+    ...(alidnsSecret.trim() ? { alidns_secret: alidnsSecret.trim() } : {}),
+  });
+
+  const toggleHttps = async (enabled: boolean) => {
+    if (!form) return;
+    const domain = form.https_domain.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+    if (enabled && !await confirmDialog({
+      title: "启用 HTTPS 域名访问？",
+      body: `启用后学生通过 https://${domain || "你的域名"} 访问，原来的 http://IP:端口 地址会停止服务。请先确认域名已解析到这台电脑。`,
+      confirmLabel: "启用",
+    })) return;
+    void saveSettings({ ...httpsFields(form), https_enabled: enabled }, "https");
+  };
+
+  const submitHttps = (event: FormEvent) => {
+    event.preventDefault();
+    if (form) void saveSettings(httpsFields(form), "https-save");
+  };
+
   const open = (target: string) => run(`open-${target}`, async () => { await api(`/api/panel/open?target=${target}`, { method: "POST" }); });
   const copy = async (text: string) => {
     try { await navigator.clipboard.writeText(text); setMessage(`已复制 ${text}`); }
@@ -107,6 +136,12 @@ export function PanelApp() {
 
   const displayUrl = state?.display_url ?? (state?.addresses[0] ? `http://${state.addresses[0].address}:${state.port ?? 8080}` : "");
   const statusClass = !state ? "" : state.server_error ? "down" : state.update?.status === "available" || state.update?.status === "ready" ? "update" : "";
+  const https = state?.https;
+  const httpsStatus = !https || !form?.https_enabled ? null
+    : https.certificate_valid && https.active ? { tone: "ok", text: `已启用，证书有效期至 ${new Date(https.certificate_expires ?? "").toLocaleDateString("zh-CN")}，到期前自动续期。` }
+    : https.error ? { tone: "error", text: https.error }
+    : https.active ? { tone: "pending", text: "正在申请证书，通常一两分钟内完成…" }
+    : { tone: "error", text: "HTTPS 设置不完整，请检查下面的字段。" };
   const statusText = !state ? "正在连接…" : state.server_error ? "服务异常" : state.available ? "服务运行中" : "开发模式";
 
   return (
@@ -126,8 +161,12 @@ export function PanelApp() {
       <section className="panel-card card-surface">
         <h2>学生访问地址</h2>
         <p>把下面的地址发给学生，或让他们扫码打开工位地图。电脑联网方式改变时地址会自动更新。</p>
-        {state?.addresses.length === 0 && <p className="panel-notice">没有检测到局域网地址，请确认电脑已连接校园网。</p>}
-        {state?.addresses.map((item) => {
+        {!https?.active && state?.addresses.length === 0 && <p className="panel-notice">没有检测到局域网地址，请确认电脑已连接校园网。</p>}
+        {https?.active && displayUrl && <div className="panel-address-row primary">
+          <span>{displayUrl}<em>HTTPS</em></span>
+          <button className="icon-button" aria-label="复制地址" title="复制地址" onClick={() => void copy(displayUrl)}><Copy size={15} /></button>
+        </div>}
+        {!https?.active && state?.addresses.map((item) => {
           const url = `http://${item.address}:${state.port ?? form?.port ?? 8080}`;
           return <div key={item.address} className={`panel-address-row ${item.primary ? "primary" : ""}`}>
             <span>{url}{item.primary && <em>推荐</em>}</span>
@@ -139,15 +178,34 @@ export function PanelApp() {
           <img src={`/api/panel/qr.svg?text=${encodeURIComponent(displayUrl)}`} alt="访问二维码" />
           <div>
             <strong>{displayUrl}</strong>
-            <small>二维码对应“对外显示地址”。留空则使用推荐地址。</small>
+            <small>{https?.active ? "二维码对应 HTTPS 域名。" : "二维码对应“对外显示地址”。留空则使用推荐地址。"}</small>
           </div>
         </div>}
-        {state?.platform === "win32" && <p className="panel-notice">学生打不开地址？DeskAtlas 第一次运行时，Windows 会询问是否允许它访问网络，请选择“允许访问”（专用和公用网络都勾选）。如果当时点了取消，可在“Windows 安全中心 → 防火墙和网络保护 → 允许应用通过防火墙”中勾选 DeskAtlas。</p>}
+        {state?.platform === "win32" && https?.active && <p className="panel-notice">学生打不开地址？第一次启用 HTTPS 时，Windows 会询问是否允许 caddy 访问网络，请选择“允许访问”。也请确认域名的 A 记录指向这台电脑的 IP。</p>}
+        {state?.platform === "win32" && !https?.active && <p className="panel-notice">学生打不开地址？DeskAtlas 第一次运行时，Windows 会询问是否允许它访问网络，请选择“允许访问”（专用和公用网络都勾选）。如果当时点了取消，可在“Windows 安全中心 → 防火墙和网络保护 → 允许应用通过防火墙”中勾选 DeskAtlas。</p>}
         <div className="panel-buttons">
           <button disabled={!state?.available || !!busy} onClick={() => void open("public")}><Users size={15} />打开学生端</button>
           <button disabled={!state?.available || !!busy} onClick={() => void open("admin")}><ExternalLink size={15} />打开管理端</button>
         </div>
       </section>
+
+      {form && https?.supported && <section className="panel-card card-surface">
+        <h2>HTTPS 域名访问</h2>
+        <label className="panel-toggle">
+          <div><strong>通过 HTTPS 域名访问</strong><small>用阿里云 DNS 验证自动申请并续期证书，电脑不需要能从校外访问。</small></div>
+          <span className="switch"><input type="checkbox" disabled={!!busy} checked={form.https_enabled} onChange={(event) => void toggleHttps(event.target.checked)} /><i /></span>
+        </label>
+        {httpsStatus && <p className={`panel-https-status ${httpsStatus.tone}`}>{httpsStatus.tone === "ok" ? <LockKeyhole size={15} /> : httpsStatus.tone === "error" ? <CircleAlert size={15} /> : <RefreshCw size={15} />}{httpsStatus.text}</p>}
+        <form className="panel-form" onSubmit={submitHttps} onChange={() => { formTouched.current = true; }}>
+          <label className="panel-field"><span>域名</span><input placeholder="例如 physdesk.cn" autoComplete="off" spellCheck={false} maxLength={260} value={form.https_domain} onChange={(event) => setForm({ ...form, https_domain: event.target.value })} /></label>
+          <div className="panel-inline">
+            <label className="panel-field"><span>阿里云 AccessKey ID</span><input autoComplete="off" spellCheck={false} maxLength={128} value={form.alidns_key_id} onChange={(event) => setForm({ ...form, alidns_key_id: event.target.value })} /></label>
+            <label className="panel-field"><span>AccessKey Secret</span><input type="password" autoComplete="off" maxLength={128} placeholder={form.alidns_secret_configured ? "已配置，留空保留" : ""} value={alidnsSecret} onChange={(event) => setAlidnsSecret(event.target.value)} /></label>
+          </div>
+          <p className="panel-notice">先在阿里云“云解析 DNS”把域名的 A 记录指向这台电脑的 IP{state?.addresses[0] ? `（${state.addresses[0].address}）` : ""}。AccessKey 只需授予 AliyunDNSFullAccess 权限，Secret 加密保存在本机。</p>
+          <button className="primary-action compact" disabled={!state?.available || !!busy}>{busy === "https-save" ? "正在保存…" : "保存 HTTPS 设置"}</button>
+        </form>
+      </section>}
 
       <section className="panel-card card-surface">
         <h2>备份</h2>
