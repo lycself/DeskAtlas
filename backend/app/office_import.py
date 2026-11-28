@@ -73,6 +73,11 @@ def surveyed_preview(roster: bytes, floorplan: bytes, *, map_ranges: dict[str, s
                 region_owners[row_index, col_index].add(room_name)
     result = {}
     for name, rows in rooms.items():
+        # A wholly blank row repeating a listed seat number carries no information.
+        repeated = Counter(row["seat_code"] for row in rows)
+        rows[:] = [row for row in rows if repeated[row["seat_code"]] == 1 or row["person_name"]
+                   or row.get("source_student_no") or row.get("source_note")
+                   or row.get("source_student_note") or row.get("source_seat_note")]
         codes = [row["seat_code"] for row in rows]
         if len(codes) != len(set(codes)):
             raise ValueError(f"房间 {name} 的汇总表座位号重复")
@@ -128,12 +133,13 @@ def surveyed_preview(roster: bytes, floorplan: bytes, *, map_ranges: dict[str, s
             rows.append(dict(seat_code=code, room_name=name, kind="empty", person_name=None,
                              adviser=None, enrollment_year=None, program_level=None, major_name=None,
                              source_row=None, note=None, source_note=None,
-                             warnings=["汇总表未列，使用情况待核对"], reserved=True, map_only=True))
+                             # 平面图为准：图上有、汇总表没列的座位是可申请的空位。
+                             warnings=["汇总表未列，使用情况待核对"], reserved=False, map_only=True))
         for row in rows:
             row["location"] = unique.get(row["seat_code"])
             if row["seat_code"] in missing:
                 row["warnings"].append("分布图未提供唯一位置")
-            row["reserved"] = (row.get("map_only", False) or row["kind"] == "empty" and (
+            row["reserved"] = (row["kind"] == "empty" and not row.get("map_only") and (
                 any(token in (row.get("source_seat_note") or row.get("source_note") or row["note"] or "") for token in ("备用间", "放物品", "个工位"))
                 or bool(region and row["seat_code"] in missing)))
         result[name] = {"rows": rows, "doors": doors, "walls": list(walls.values()), "range": region,

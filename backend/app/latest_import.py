@@ -2,6 +2,7 @@
 from collections import defaultdict
 import hashlib
 import io
+import re
 
 from openpyxl import load_workbook
 from sqlalchemy import select
@@ -15,14 +16,16 @@ from .student_rules import ensure_virtual_rooms, place_unassigned, student_email
 LATEST_MAP_RANGES = {
     "301": "B2:F6", "302": "G2:K8", "311": "M2:Q10", "313": "S2:W9",
     "315": "Y2:AB9", "319": "AD2:AH10", "321": "AJ2:AN10",
-    "322": "A13:F17", "323": "I13:M20", "324": "O13:S19", "362": "U13:AB18",
+    "322": "B13:G17", "323": "I13:M20", "324": "O13:S19", "362": "U13:AB18",
     "402": "AD13:AI21", "406": "AK13:AO21", "408": "B24:F32", "409": "I24:K31",
     "411": "M24:O32", "413": "Q24:U32", "415": "X24:AB32", "417": "AF24:AH32",
     "419": "AK24:AO32", "421": "B35:F43", "423": "I35:M43", "424": "P35:T42",
-    "425": "W35:AA42", "431": "AD35:AN42", "444": "A47:F53", "457": "H47:O52",
-    "442-1": "Q47:W57", "442-2": "Z47:AE57", "555": "AG47:AN51",
+    "425": "W35:AA42", "431": "AD35:AN42", "444": "B48:G54", "457": "J47:Q52",
+    "442-1": "S47:Y57", "442-2": "AB47:AG57", "555": "AI47:AP51",
     "558": "B61:F71", "561": "I61:N66", "567": "Q61:W67",
     "559-1": "Z61:AE70", "559-2": "AH61:AN70", "661": "B74:K79", "680": "M74:S79",
+    # 441 is drawn from 441布局.png below the original map (2026-11-28).
+    "441": "B82:J95",
 }
 
 
@@ -67,32 +70,57 @@ def latest_preview(roster: bytes, floorplan: bytes, directory: bytes, teachers: 
     by_name = defaultdict(list)
     for student in students:
         by_name[student["name"]].append(student)
+    by_number = {student["student_no"]: student for student in students}
     warnings, assigned_numbers = [], set()
     matched_rows = defaultdict(list)
-    for room in preview["rooms"].values():
-        for row in room["rows"]:
-            if row["kind"] != "student":
-                continue
-            candidates = by_name[row["person_name"]]
-            if len(candidates) > 1:
-                candidates = [s for s in candidates if s["adviser"] == row["adviser"]]
-            if len(candidates) > 1 and row["enrollment_year"]:
-                candidates = [s for s in candidates if s["enrollment_year"] == row["enrollment_year"]]
-            if len(candidates) == 1:
-                student = candidates[0]
-                if row["program_level"] == "硕转博" and student["program_level"] == "博士":
-                    student["program_level"] = "硕转博"
-                if row["program_level"] in {"科研助理", "联培"}:
-                    student["program_level"] = row["program_level"]
-                assigned_numbers.add(student["student_no"])
-                row["student_no"] = student["student_no"]
-                matched_rows[student["student_no"]].append(row)
-                # Room affiliation comes from the room survey; student affiliation from teacher roster.
-                if not student["center"]:
-                    student["center"] = center_name(row["major_name"]) or None
-            else:
-                warnings.append(dict(source_row=row["source_row"], name=row["person_name"],
-                                     reason="未在学生信息表唯一匹配，保留座位记录，学号待补全"))
+    rows = [row for room in preview["rooms"].values() for row in room["rows"] if row["kind"] != "equipment"]
+
+    def match(row, student):
+        if row["program_level"] == "硕转博" and student["program_level"] == "博士":
+            student["program_level"] = "硕转博"
+        if row["program_level"] in {"科研助理", "联培"}:
+            student["program_level"] = row["program_level"]
+        # 座位表写了导师就以座位表为准（"待定"不算），教研中心随之按教师名单重算。
+        if row["adviser"] and row["adviser"] != "待定" and row["adviser"] != student["adviser"]:
+            student["adviser"] = row["adviser"]
+            centers = set().union(*(adviser_centers.get(name, set())
+                                    for name in re.split(r"[，,、/;；\s]+", row["adviser"]) if name))
+            student["center"] = next(iter(centers)) if len(centers) == 1 else None
+        # Room affiliation comes from the room survey; student affiliation from teacher roster.
+        if not student["center"]:
+            student["center"] = center_name(row["major_name"]) or None
+        assigned_numbers.add(student["student_no"])
+        row["student_no"] = student["student_no"]
+        matched_rows[student["student_no"]].append(row)
+
+    # The name decides who sits where; a typed 学号 may be wrong, so it only
+    # settles same-name students when it belongs to a student with that name.
+    confirmed = {by_number[row["source_student_no"]]["student_no"] for row in rows
+                 if row["kind"] == "student" and row.get("source_student_no") in by_number
+                 and by_number[row["source_student_no"]]["name"] == row["person_name"]}
+    for row in rows:
+        number = row.get("source_student_no")
+        if row["kind"] != "student":
+            if number:
+                row["warnings"].append(f"只有学号 {number} 没有姓名，按空位处理")
+            continue
+        candidates = by_name[row["person_name"]]
+        owner = by_number.get(number) if number else None
+        if number and owner not in candidates:
+            row["warnings"].append(f"学号 {number} 与姓名不符，已按姓名识别")
+        if owner in candidates:
+            candidates = [owner]
+        elif len(candidates) > 1:
+            candidates = [s for s in candidates if s["student_no"] not in confirmed] or candidates
+        if len(candidates) > 1:
+            candidates = [s for s in candidates if s["adviser"] == row["adviser"]]
+        if len(candidates) > 1 and row["enrollment_year"]:
+            candidates = [s for s in candidates if s["enrollment_year"] == row["enrollment_year"]]
+        if len(candidates) == 1:
+            match(row, candidates[0])
+        else:
+            warnings.append(dict(source_row=row["source_row"], name=row["person_name"],
+                                 reason="未在学生信息表唯一匹配，保留座位记录，学号待补全"))
     conflicts = []
     for number, rows in matched_rows.items():
         if len(rows) < 2:

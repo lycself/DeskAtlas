@@ -20,6 +20,7 @@ HEADER_ALIASES = {
     "note": {"备注", "说明"},
     "student_note": {"学生备注", "学生状态备注"},
     "seat_note": {"工位备注", "座位备注"},
+    "student_no": {"学号"},
 }
 
 
@@ -118,6 +119,7 @@ def preview_workbook(content: bytes) -> dict[str, Any]:
                 "seat_note": import_note(source_seat_note, None),
                 "source_student_note": source_student_note,
                 "source_seat_note": source_seat_note,
+                "source_student_no": str(value("student_no") or "").strip().removesuffix(".0") or None,
                 "kind": kind,
                 "reserved": kind == "empty" and any(token in (source_seat_note or "") for token in ("备用间", "放物品", "个工位")),
                 "warnings": warnings,

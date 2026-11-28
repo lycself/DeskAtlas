@@ -212,7 +212,7 @@ def test_shared_walls_thin_partition_and_map_only_seats():
     assert preview["rooms"]["402"]["walls"] == [{"x": 227, "y": 583, "width": 4, "height": 66}]
     rows = preview["rooms"]["408"]["rows"]
     assert [r["seat_code"] for r in rows] == ["1", "18", "19"]
-    assert all(r["reserved"] and r["location"] and r["person_name"] is None for r in rows[1:])
+    assert all(not r["reserved"] and r["location"] and r["person_name"] is None for r in rows[1:])
 
 
 def test_targeted_repair_is_idempotent_and_preserves_assignments():

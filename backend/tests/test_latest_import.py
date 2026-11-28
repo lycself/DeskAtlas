@@ -216,3 +216,48 @@ def test_virtual_layout_uses_center_order_and_distinct_positions():
         assert [item['label'] for item in seats] == ['01', '02', '03']
         assert len({(item['x'], item['y']) for item in seats}) == 3
         assert [item['label'] for item in items if item['type'] == 'label'] == ['甲组', '乙组']
+
+
+def test_name_decides_occupant_and_student_number_only_settles_same_names():
+    directory = workbook_bytes([
+        ["学号", "姓名", "导师姓名", "年级", "培养层次"],
+        ["001", "甲", "甲导师", "2026级", "硕士"],
+        ["002", "乙", "乙导师", "2026级", "硕士"],
+        ["003", "丙", None, "2026级", "硕士"],
+        ["004", "同名", None, "2026级", "硕士"],
+        ["005", "同名", None, "2026级", "硕士"],
+    ])
+    teachers = workbook_bytes([["姓名", "职称", "中心职务", "教研中心"],
+        ["甲导师", "教授", None, "光学教研中心"], ["乙导师", "教授", None, "理论物理教研中心"]])
+    roster = workbook_bytes([
+        ["房间", "座位号", "姓名", "导师", "年级（202X级）", "培养层次", "教研中心", "学生备注", "工位备注", "学号"],
+        [301, 1, "甲", "甲导师", "2026级", "硕", "光学", "离校两年", None, "002"],
+        [301, 2, None, None, None, None, None, None, None, "003"],
+        [301, 3, "乙", "甲导师", "2026级", "硕", "光学", None, None, None],
+        [301, 4, "丙", "乙导师", "2026级", "硕", "理论物理", None, None, None],
+        [301, 4, None, None, None, None, None, None, None, None],
+        [301, 5, "同名", "甲导师", "2026级", "硕", "光学", None, None, "005"],
+        [301, 6, "同名", "甲导师，丁导师", "2026级", "硕", "光学", None, None, None],
+    ])
+    book = Workbook()
+    book.active["E2"] = 301
+    for coordinate, value in zip(("B3", "C3", "D3", "B4", "C4", "D4"), range(1, 7)):
+        book.active[coordinate] = value
+    stream = BytesIO()
+    book.save(stream)
+    preview = latest_preview(roster, stream.getvalue(), directory, teachers)
+    rows = {row["seat_code"]: row for row in preview["rooms"]["301"]["rows"]}
+    assert len(preview["rooms"]["301"]["rows"]) == 6
+    assert (rows["1"]["student_no"], rows["1"]["student_note"]) == ("001", "离校两年")
+    assert "学号 002 与姓名不符，已按姓名识别" in rows["1"]["warnings"]
+    assert rows["2"]["kind"] == "empty" and "student_no" not in rows["2"]
+    assert rows["3"]["student_no"] == "002"
+    assert rows["4"]["student_no"] == "003"
+    assert rows["5"]["student_no"] == "005"
+    assert rows["6"]["student_no"] == "004"
+    students = {s["student_no"]: s for s in preview["students"]}
+    assert (students["003"]["adviser"], students["003"]["center"]) == ("乙导师", "理论物理")
+    # 导师以座位表为准，教研中心随教师名单重算。
+    assert (students["002"]["adviser"], students["002"]["center"]) == ("甲导师", "光学")
+    assert (students["004"]["adviser"], students["004"]["center"]) == ("甲导师，丁导师", "光学")
+    assert preview["assignment_conflicts"] == [] and preview["identity_warnings"] == []
