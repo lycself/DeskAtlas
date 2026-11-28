@@ -103,6 +103,7 @@ function RoomPicker({ rooms, allRooms, selected, onSelect, majorFilter, onMajorC
 
 export function StudentPortal() {
   const workspace = useRef<HTMLElement>(null);
+  const head = useRef<HTMLDivElement>(null);
   const showRoom = useRef(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [data, setData] = useState<Bootstrap | null>(null);
@@ -171,8 +172,18 @@ export function StudentPortal() {
     if (changed) window.history.replaceState(null, "", url);
   }, [data, browse, selectedRoomId, view, majorFilter]);
 
+  // The pinned room list starts right under the pinned title and tabs, so it needs their height.
   useEffect(() => {
-    if (showRoom.current && !loading) { showRoom.current = false; const top = workspace.current?.getBoundingClientRect().top ?? 0; if (window.innerWidth <= 820 || top < 64) workspace.current?.scrollIntoView({ block: "start" }); }
+    const node = head.current;
+    if (!node) return;
+    const measure = () => node.parentElement?.style.setProperty("--portal-head-h", `${node.getBoundingClientRect().height}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [loading, loadError, data]); // the tabs appear only once the rooms have loaded
+  useEffect(() => {
+    if (showRoom.current && !loading) { showRoom.current = false; const top = workspace.current?.getBoundingClientRect().top ?? 0; if (window.innerWidth <= 820 || top < (head.current?.getBoundingClientRect().bottom ?? 64)) workspace.current?.scrollIntoView({ block: "start" }); }
   }, [selectedRoomId, loading]);
   // After a search, bring the chosen seat into view and give it focus, on the plan or in the list.
   useEffect(() => {
@@ -274,17 +285,26 @@ export function StudentPortal() {
     <main className="student-shell">
       <PublicHeader onSearch={data?.rooms.length ? () => setPaletteOpen(true) : undefined} />
 
-      <section className="hero-line">
-        <div>
-          <h1>工位查询与申请</h1>
-        </div>
-        {data && data.rooms.length > 0 && (
-          <div className="hero-metrics" aria-label="工位概况">
-            <span><strong>{data.rooms.filter((room) => !room.is_virtual).length}</strong> 间实体房间</span>
-            <span><strong>{data.rooms.filter((room) => !room.is_virtual).reduce((sum, room) => sum + room.items.filter((item) => item.type === "seat").length, 0)}</strong> 个工位</span>
+      {/* The title and the two tabs stay put on desktop; only the room list and the room scroll. */}
+      <div className="portal-head" ref={head}>
+        <section className="hero-line">
+          <div>
+            <h1>工位查询与申请</h1>
+          </div>
+          {data && data.rooms.length > 0 && (
+            <div className="hero-metrics" aria-label="工位概况">
+              <span><strong>{data.rooms.filter((room) => !room.is_virtual).length}</strong> 间实体房间</span>
+              <span><strong>{data.rooms.filter((room) => !room.is_virtual).reduce((sum, room) => sum + room.items.filter((item) => item.type === "seat").length, 0)}</strong> 个工位</span>
+            </div>
+          )}
+        </section>
+        {!loading && !loadError && data && data.rooms.length > 0 && (
+          <div className="segmented-control browse-switch" role="group" aria-label="浏览方式">
+            <button aria-pressed={browse === "rooms"} onClick={() => setBrowse("rooms")}>按房间浏览</button>
+            <button aria-pressed={browse === "vacancies"} onClick={() => setBrowse("vacancies")}>可申请的工位 <b>{data.rooms.reduce((sum, room) => sum + (room.is_virtual ? 0 : room.seat_counts.available ?? 0), 0)}</b></button>
           </div>
         )}
-      </section>
+      </div>
 
       {loading ? (
         <div className="central-message"><RefreshCw className="spin" /> 正在加载房间数据…</div>
@@ -298,10 +318,6 @@ export function StudentPortal() {
         </div>
       ) : (
         <>
-        <div className="segmented-control browse-switch" role="group" aria-label="浏览方式">
-          <button aria-pressed={browse === "rooms"} onClick={() => setBrowse("rooms")}>按房间浏览</button>
-          <button aria-pressed={browse === "vacancies"} onClick={() => setBrowse("vacancies")}>可申请的工位 <b>{data.rooms.reduce((sum, room) => sum + (room.is_virtual ? 0 : room.seat_counts.available ?? 0), 0)}</b></button>
-        </div>
         {browse === "vacancies" ? <VacancyList rooms={data.rooms} majorFilter={majorFilter} onMajorChange={changeMajor} onApply={applyFrom} onOpenRoom={openRoom} /> :
         <div className="public-workspace">
           <div className={`public-directory ${pickerOpen ? "open" : ""}`}><button className="public-directory-toggle" aria-label="切换房间" aria-expanded={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)}><span>当前{selectedRoom?.is_virtual ? "分组" : "房间"} · <strong>{selectedRoom?.name ?? "请选择"}</strong></span><small>{pickerOpen ? "收起" : "切换"}</small><ChevronDown size={16} /></button><RoomPicker rooms={filteredRooms} allRooms={data.rooms} selected={selectedRoom} majorFilter={majorFilter} onMajorChange={changeMajor} onSelect={(room, reveal = true) => { if (reveal) setPickerOpen(false); showRoom.current = reveal; setSelectedRoomId(room.id); setSelectedItem(null); setExpandedListItemId(null); setFoundSeatId(null); }} /></div>

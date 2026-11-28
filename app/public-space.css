@@ -155,6 +155,22 @@
 .public-directory { position: sticky; top: 88px; min-width: 0; align-self: start; padding-right: 20px; border-right: 1px solid var(--line); }
 .public-directory-toggle { display: none; }
 
+/* Desktop: the title, the tabs and the room list stay put; only the room (or the free-seat list) scrolls.
+   --portal-head-h is the measured height of .portal-head; the fallback is its usual height.
+   The room list always ends 24px above the window edge, and the page's bottom padding matches,
+   so reaching the end of the page never pushes the list up. Short windows scroll as one page. */
+@media (min-width: 821px) and (min-height: 561px) {
+  .student-shell { --portal-head-bottom: calc(64px + var(--portal-head-h, 118px)); padding-top: 64px; padding-bottom: 24px; }
+  .portal-head { display: flow-root; position: sticky; top: 64px; z-index: 20; padding-top: 16px; background: var(--bg); }
+  .public-directory { top: var(--portal-head-bottom); }
+  .room-picker { max-height: calc(100dvh - var(--portal-head-bottom) - 24px); }
+  .student-shell #workspace { scroll-margin-top: var(--portal-head-bottom); }
+}
+@media (min-width: 821px) and (max-height: 560px) {
+  .public-directory { position: static; }
+  .room-picker { max-height: none; }
+}
+
 /* Free-seat overview, the second tab: every free seat, grouped by floor and room. */
 .browse-switch { margin-bottom: 14px; }
 .browse-switch button { font-size: var(--text-md); padding: 7px 14px; }
