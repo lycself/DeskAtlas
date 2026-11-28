@@ -30,23 +30,21 @@ const stripComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, (match) =>
 
 // 1. Type sizes and corner radii come from the tokens in globals.css.
 const allowedRadius = /^(var\(--radius-(micro|control|card|overlay)\)|0|50%|999px|inherit)$/;
-// The floating headers morph their radius while scrolling, starting from a token.
-const morphingRadius = /^calc\(var\(--radius-(micro|control|card|overlay)\) [^;]*var\(--nav-progress\)\)$/;
 const allowedSize = /^(var\(--text-[a-z0-9]+\)|inherit|[\d.]+em|[\d.]+%)( !important)?$/;
 for (const path of css) {
   const source = stripComments(readFileSync(path, "utf8"));
   for (const match of source.matchAll(/(?<![-\w])(border(?:-(?:top|bottom)-(?:left|right))?-radius|font-size)\s*:\s*([^;}]+)/g)) {
     const [, property, raw] = match;
     const value = raw.trim();
-    const ok = property === "font-size" ? allowedSize.test(value) : morphingRadius.test(value) || value.split(/\s+/).every((part) => allowedRadius.test(part));
+    const ok = property === "font-size" ? allowedSize.test(value) : value.split(/\s+/).every((part) => allowedRadius.test(part));
     if (!ok) {
       report(path, match.index, source, `${property}: ${value} — use a --${property === "font-size" ? "text" : "radius"}-* token`);
     }
   }
 }
 
-// 1b. No outlined boxes (direction B): dashed outlines are reserved for staging areas such as
-//     unplaced seats and empty virtual slots, and the "not filled in" tag. Anything else sinks or lifts by tone instead.
+// 1b. Dashed outlines are reserved for staging areas such as unplaced seats and empty virtual
+//     slots, and the "not filled in" tag. Everything else uses solid hairlines (--line, --edge).
 const dashedAllowed = new Set([".unplaced-seats", ".virtual-position.placeholder", ".major-tag.unspecified"]);
 for (const path of css) {
   const source = stripComments(readFileSync(path, "utf8"));
@@ -144,6 +142,13 @@ for (const [theme, expression] of [["day", /:root\s*\{([^}]*)\}/], ["night", /:r
 for (const path of css.filter((path) => path !== globalsPath)) {
   const source = stripComments(readFileSync(path, "utf8"));
   for (const match of source.matchAll(/scrollbar-(?:width|color)\s*:|::-webkit-scrollbar/g)) report(path, match.index, source, "scrollbars belong to globals.css, including portal menus");
+}
+
+// 9. No backdrop blur: on a fixed bar or overlay it re-blurs on every scrolled frame, more than doubling
+//    compositing cost; on the office PC that is visible stutter (measured 2026-11-28).
+for (const path of css) {
+  const source = stripComments(readFileSync(path, "utf8"));
+  for (const match of source.matchAll(/backdrop-filter\s*:/g)) report(path, match.index, source, "backdrop-filter — use a solid --surface / --overlay-bg instead");
 }
 
 if (problems.length) {

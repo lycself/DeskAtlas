@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronDown, CircleAlert, MailCheck, Plus, RefreshCw, Send, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, CircleAlert, MailCheck, PencilLine, Plus, RefreshCw, Send, SlidersHorizontal } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminBackup } from "./AdminBackup";
 import { AdminTeachers } from "./AdminTeachers";
+import { EditableForm } from "@/app/components/EditableForm";
 
 import { Notice } from "@/app/components/Notice";
 import { Select } from "@/app/components/Select";
@@ -27,8 +28,8 @@ const tabs: Array<[string, string]> = [
 
 export function AdminSettings({ active = true }: { active?: boolean }) {
   const [majors, setMajors] = useState<Major[]>([]);
-  // Names being edited inline; a row shows its save button only while its draft differs.
-  const [nameDrafts, setNameDrafts] = useState<Record<number, string>>({});
+  // The one centre name being edited; every other row reads as text until its 编辑 is pressed.
+  const [editingMajor, setEditingMajor] = useState<{ id: number; name: string } | null>(null);
   const [newMajor, setNewMajor] = useState("");
   const [smtp, setSmtp] = useState<Smtp>({ is_configured: false });
   const [smtpPassword, setSmtpPassword] = useState("");
@@ -45,8 +46,10 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
   const [busy, setBusy] = useState("");
   const busyRef = useRef(false);
   const [smtpLoaded, setSmtpLoaded] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const dirtyRef = useRef(false);
+  // SMTP reads as saved values until 编辑; a background refresh never overwrites an edit in progress.
+  const [smtpEditing, setSmtpEditing] = useState(false);
+  const smtpEditingRef = useRef(false);
+  const savedSmtp = useRef<Smtp>({ is_configured: false });
   const tabStrip = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState("majors");
   useEffect(() => {
@@ -61,15 +64,16 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
     observer.observe(strip);
     return () => observer.disconnect();
   }, [tab]);
-  const markDirty = () => { dirtyRef.current = true; setDirty(true); };
+  const editSmtp = (on: boolean) => { smtpEditingRef.current = on; setSmtpEditing(on); };
+  const cancelSmtp = () => { setSmtp(savedSmtp.current); setSmtpPassword(""); editSmtp(false); };
 
   const load = async (signal?: AbortSignal) => {
     setAuditState("loading");
     const results = await Promise.allSettled([
-      api<Major[]>("/api/admin/majors", { signal }).then((rows) => { setMajors(rows); setNameDrafts({}); }),
+      api<Major[]>("/api/admin/majors", { signal }).then((rows) => { setMajors(rows); setEditingMajor(null); }),
       api<Delivery[]>("/api/admin/email-deliveries", { signal }).then(setDeliveries),
       api<Audit[]>("/api/admin/audit", { signal }).then((rows) => { setAudit(rows); setAuditState("ready"); }).catch((caught) => { if (!signal?.aborted) setAuditState("error"); throw caught; }),
-      api<Smtp>("/api/admin/smtp", { signal }).then((config) => { if (!dirtyRef.current) setSmtp(config); setSmtpLoaded(true); }),
+      api<Smtp>("/api/admin/smtp", { signal }).then((config) => { savedSmtp.current = config; if (!smtpEditingRef.current) setSmtp(config); setSmtpLoaded(true); }),
     ]);
     if (signal?.aborted) return;
     const errors = results.flatMap((result, index) => result.status === "rejected" ? [`${["教研中心", "邮件记录", "操作日志", "SMTP 配置"][index]}：${result.reason instanceof Error ? result.reason.message : "加载失败"}`] : []);
@@ -104,7 +108,7 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
   const updateMajor = (major: Major, patch: Partial<Major>) => void run("major", async () => {
     const updated = await api<Major>(`/api/admin/majors/${major.id}`, { method: "PATCH", body: JSON.stringify(patch) });
     setMajors((rows) => rows.map((row) => row.id === updated.id ? updated : row));
-    setNameDrafts((drafts) => { const next = { ...drafts }; delete next[major.id]; return next; });
+    if (patch.name !== undefined) setEditingMajor(null);
     setMessage("教研中心设置已更新");
   });
   const saveSmtp = (event: FormEvent) => {
@@ -114,7 +118,7 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
         host: smtp.host?.trim(), port: Number(smtp.port ?? 587), security: smtp.security ?? "starttls", username: smtp.username?.trim() ?? "", password: smtpPassword || null,
         sender_name: smtp.sender_name?.trim() || "DeskAtlas", sender_email: smtp.sender_email?.trim(),
       }) });
-      setSmtp(saved); setSmtpPassword(""); dirtyRef.current = false; setDirty(false); setMessage("SMTP 配置已保存，可以发送测试邮件。");
+      savedSmtp.current = saved; setSmtp(saved); setSmtpPassword(""); editSmtp(false); setMessage("SMTP 配置已保存，可以发送测试邮件。");
     });
   };
   const showDeliveryResult = (result: { status: string; error?: string }) => {
@@ -124,7 +128,7 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
   const refreshDeliveries = async () => setDeliveries(await api<Delivery[]>("/api/admin/email-deliveries"));
   const test = (event: FormEvent) => {
     event.preventDefault();
-    if (dirty || !smtp.is_configured) { setError("请先保存 SMTP 配置，再发送测试邮件。"); return; }
+    if (smtpEditing || !smtp.is_configured) { setError("请先保存 SMTP 配置，再发送测试邮件。"); return; }
     void run("test", async () => {
       showDeliveryResult(await api<{ status: string; error?: string }>("/api/admin/smtp/test", { method: "POST", body: JSON.stringify({ recipient: testRecipient.trim() }) }));
       await refreshDeliveries();
@@ -150,19 +154,25 @@ export function AdminSettings({ active = true }: { active?: boolean }) {
     <div hidden={tab !== "backup"}><AdminBackup active={active && tab === "backup"} /></div>
     <div className="settings-grid">
       <section className="flat-section major-settings" hidden={tab !== "majors"}>
-        <header><div><h2>教研中心选项</h2><p>点击名称可直接修改；停用后不再出现在新申请中，历史数据不受影响。</p></div><SlidersHorizontal /></header>
+        <header><div><h2>教研中心选项</h2><p>点「编辑」修改名称；停用后不再出现在新申请中，历史数据不受影响。</p></div><SlidersHorizontal /></header>
         <form className="inline-create" onSubmit={addMajor}><input aria-label="新增教研中心名称" value={newMajor} onChange={(e) => setNewMajor(e.target.value)} placeholder="新增教研中心名称" /><button disabled={!!busy || !newMajor.trim()}><Plus size={15} />添加</button></form>
         <div className="setting-rows">{majors.map((major) => {
-          const draft = nameDrafts[major.id];
-          const changed = draft !== undefined && draft.trim() !== major.name;
+          const editing = editingMajor?.id === major.id ? editingMajor : null;
+          const cancel = () => setEditingMajor(null);
           return <div key={major.id} className={major.is_active ? "" : "inactive"}>
-            <input aria-label={`教研中心名称：${major.name}`} value={draft ?? major.name} onChange={(e) => setNameDrafts((drafts) => ({ ...drafts, [major.id]: e.target.value }))} onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter" && changed && draft.trim()) { e.preventDefault(); updateMajor(major, { name: draft.trim() }); } if (e.key === "Escape") setNameDrafts((drafts) => { const next = { ...drafts }; delete next[major.id]; return next; }); }} />
-            {changed && <button disabled={!!busy || !draft.trim()} onClick={() => updateMajor(major, { name: draft.trim() })}>保存</button>}
+            {editing ? <form className="major-name-edit" onSubmit={(e) => { e.preventDefault(); if (editing.name.trim() && editing.name.trim() !== major.name) updateMajor(major, { name: editing.name.trim() }); else cancel(); }}>
+              <input autoFocus aria-label={`教研中心名称：${major.name}`} maxLength={80} value={editing.name} onChange={(e) => setEditingMajor({ id: major.id, name: e.target.value })} onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Escape") { e.preventDefault(); cancel(); } }} />
+              <button className="primary-action compact" disabled={!!busy || !editing.name.trim()}>保存</button>
+              <button type="button" className="secondary-action compact" disabled={!!busy} onClick={cancel}>取消</button>
+            </form> : <>
+              <span className="major-name">{major.name}</span>
+              <button type="button" className="secondary-action compact" disabled={!!busy || !!editingMajor} aria-label={`编辑 ${major.name}`} onClick={() => setEditingMajor({ id: major.id, name: major.name })}><PencilLine size={15} />编辑</button>
+            </>}
             <label className="switch" title={major.is_active ? "已启用，点击停用" : "已停用，点击启用"}><input type="checkbox" aria-label={`${major.is_active ? "停用" : "启用"} ${major.name}`} disabled={!!busy} checked={!!major.is_active} onChange={(e) => updateMajor(major, { is_active: e.target.checked })} /><i /></label>
           </div>;
         })}</div>
       </section>
-      <section className="flat-section smtp-settings" hidden={tab !== "smtp"}><header><div><h2>SMTP 邮件</h2><p>密码加密保存，审批结果不会因邮件失败而回滚。</p></div><MailCheck /></header><form onSubmit={saveSmtp} onChange={markDirty}><fieldset disabled={!!busy || !smtpLoaded}><div className="field-grid two"><label><span>服务器</span><input required value={smtp.host ?? ""} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} /></label><label><span>端口</span><input required type="number" min={1} max={65535} value={smtp.port ?? 587} onChange={(e) => setSmtp({ ...smtp, port: Number(e.target.value) })} /></label></div><div className="field-grid two"><label><span>加密方式</span><Select value={smtp.security ?? "starttls"} onChange={(value) => { markDirty(); setSmtp({ ...smtp, security: value }); }} options={[{ value: "starttls", label: "STARTTLS" }, { value: "ssl", label: "SSL/TLS" }, { value: "none", label: "不加密" }]} /></label><label><span>用户名</span><input value={smtp.username ?? ""} onChange={(e) => setSmtp({ ...smtp, username: e.target.value })} /></label></div><label><span>密码或授权码</span><input type="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} placeholder={smtp.has_password ? "已配置；留空表示不修改" : "请输入密码或授权码"} /></label><div className="field-grid two"><label><span>发件人名称</span><input required value={smtp.sender_name ?? "DeskAtlas"} onChange={(e) => setSmtp({ ...smtp, sender_name: e.target.value })} /></label><label><span>发件邮箱</span><input required type="email" value={smtp.sender_email ?? ""} onChange={(e) => setSmtp({ ...smtp, sender_email: e.target.value })} /></label></div><button className="primary-action compact">{busy === "save" ? "正在保存…" : "保存 SMTP 配置"}</button>{dirty && <p className="form-hint">有未保存的更改</p>}</fieldset></form><form className="smtp-test" onSubmit={test}><input required type="email" aria-label="接收测试邮件的地址" placeholder="接收测试邮件的地址" value={testRecipient} onChange={(e) => setTestRecipient(e.target.value)} /><button disabled={!!busy || !smtpLoaded || !smtp.is_configured || dirty || !testRecipient}><Send size={15} />{busy === "test" ? "正在发送…" : "发送测试"}</button></form><p className="form-hint">测试使用已保存的配置。发送可能需要十几秒，请等待结果。</p></section>
+      <section className="flat-section smtp-settings" hidden={tab !== "smtp"}><header><div><h2>SMTP 邮件</h2><p>密码加密保存，审批结果不会因邮件失败而回滚。</p></div><MailCheck /></header><EditableForm className="smtp-form" editing={smtpEditing} busy={busy === "save"} canEdit={smtpLoaded && !busy} onEdit={() => editSmtp(true)} onCancel={cancelSmtp} onSubmit={saveSmtp} saveLabel="保存 SMTP 配置"><div className="field-grid two"><label><span>服务器</span><input required placeholder="例如 smtp.xmu.edu.cn" value={smtp.host ?? ""} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} /></label><label><span>端口</span><input required type="number" min={1} max={65535} value={smtp.port ?? 587} onChange={(e) => setSmtp({ ...smtp, port: Number(e.target.value) })} /></label></div><div className="field-grid two"><label><span>加密方式</span><Select value={smtp.security ?? "starttls"} onChange={(value) => setSmtp({ ...smtp, security: value })} options={[{ value: "starttls", label: "STARTTLS" }, { value: "ssl", label: "SSL/TLS" }, { value: "none", label: "不加密" }]} /></label><label><span>用户名</span><input placeholder="通常是完整邮箱地址" value={smtp.username ?? ""} onChange={(e) => setSmtp({ ...smtp, username: e.target.value })} /></label></div><label><span>密码或授权码</span><input type="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} placeholder={smtpEditing ? smtp.has_password ? "已配置；留空表示不修改" : "请输入密码或授权码" : smtp.has_password ? "已配置" : "未配置"} /></label><div className="field-grid two"><label><span>发件人名称</span><input required value={smtp.sender_name ?? "DeskAtlas"} onChange={(e) => setSmtp({ ...smtp, sender_name: e.target.value })} /></label><label><span>发件邮箱</span><input required type="email" placeholder="例如 deskatlas@xmu.edu.cn" value={smtp.sender_email ?? ""} onChange={(e) => setSmtp({ ...smtp, sender_email: e.target.value })} /></label></div></EditableForm><form className="smtp-test" onSubmit={test}><input required type="email" aria-label="接收测试邮件的地址" placeholder="接收测试邮件的地址" value={testRecipient} onChange={(e) => setTestRecipient(e.target.value)} /><button disabled={!!busy || !smtpLoaded || !smtp.is_configured || smtpEditing || !testRecipient}><Send size={15} />{busy === "test" ? "正在发送…" : "发送测试"}</button></form><p className="form-hint">测试使用已保存的配置。发送可能需要十几秒，请等待结果。</p></section>
     </div>
     <section id="mail-history" tabIndex={-1} className="flat-section log-section history-section" hidden={tab !== "logs"}><header><div><h2>邮件发送记录</h2><p>最近 100 条；失败项目可直接重试。</p></div></header>
       <div className="seat-table-wrap delivery-desktop" role="region" aria-label="邮件发送记录列表" tabIndex={0}><table className="data-table delivery-table"><colgroup><col className="delivery-time-col" /><col className="delivery-recipient-col" /><col /><col className="delivery-status-col" /><col className="delivery-attempt-col" /><col className="delivery-action-col" /></colgroup><thead><tr><th>时间</th><th>收件人</th><th>主题</th><th>状态</th><th>尝试</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{!deliveries.length && <tr><td colSpan={6} className="table-empty">还没有发送过邮件。</td></tr>}{pageDeliveries.map((row) => <tr key={row.id}><td><time className="delivery-time" dateTime={row.created_at}><span>{new Date(row.created_at).toLocaleDateString("zh-CN")}</span><span>{new Date(row.created_at).toLocaleTimeString("zh-CN")}</span></time></td><td className="delivery-recipient">{row.recipient}</td><td>{row.subject}</td><td><span className={`state-label ${row.status === "sent" ? "available" : "pending"}`}><i />{row.status === "sent" ? "已发送" : row.status === "pending" ? "等待发送" : "失败"}</span>{row.error && <p className="delivery-error">{row.error}</p>}</td><td>{row.attempt_count}</td><td>{row.status !== "sent" && <button className="row-action" disabled={!!busy} onClick={() => retry(row.id)}>{busy === `retry-${row.id}` ? "发送中…" : "重试"}</button>}</td></tr>)}</tbody></table></div>

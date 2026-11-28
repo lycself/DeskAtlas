@@ -14,7 +14,7 @@
     "test:api": ".venv/bin/python -m pytest backend/tests -q",
     "test:layout": "node --experimental-strip-types --test scripts/test_seat_layout.mjs",
     "test:web": "node scripts/check_web_conventions.mjs",
-    "check": "pnpm lint && pnpm typecheck && pnpm test:web && pnpm test:api && pnpm test:layout && pnpm test:header",
+    "check": "pnpm lint && pnpm typecheck && pnpm test:web && pnpm test:api && pnpm test:layout && pnpm test:search",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:migrate": ".venv/bin/python -m alembic -c backend/alembic.ini upgrade head",
@@ -24,7 +24,7 @@
     "serve:static": "DESKATLAS_DATA_DIR=outputs/sqlite-data .venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8080",
     "desktop:dev": "DESKATLAS_DATA_DIR=outputs/sqlite-data .venv/bin/python -m desktop",
     "migrate:sqlite": ".venv/bin/python scripts/migrate_to_sqlite.py",
-    "test:header": "node --experimental-strip-types --test scripts/test_header_motion.mjs"
+    "test:search": "node --experimental-strip-types --test scripts/test_search.mjs"
   },
   "dependencies": {
     "konva": "10.3.2",

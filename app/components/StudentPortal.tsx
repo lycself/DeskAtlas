@@ -11,12 +11,11 @@ import {
   List,
   LockKeyhole,
   RefreshCw,
-  Search,
-  X,
 } from "lucide-react";
-import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Select } from "@/app/components/Select";
+import { useCommandShortcut } from "@/app/hooks/useCommandShortcut";
 import { api } from "@/app/lib/api";
 import { getFloorLabel, groupRoomsByFloor, sortRooms } from "@/app/lib/rooms";
 import type { Bootstrap, LayoutItem, Room, SeatState } from "@/app/lib/types";
@@ -26,6 +25,7 @@ import { RoomPlan } from "./RoomPlan";
 import { VirtualRoomPlan } from "./VirtualRoomPlan";
 import { PublicHeader } from "./PublicHeader";
 import { MajorTags } from "./MajorTags";
+import { StudentSearch } from "./StudentSearch";
 import { emptyStudentForm, StudentFormFields, type StudentFormValues } from "./admin/StudentFormFields";
 
 const labels: Record<SeatState, string> = {
@@ -38,6 +38,8 @@ const labels: Record<SeatState, string> = {
 const ROOM_PARAM = "room";
 const VIEW_PARAM = "view";
 const MAJOR_PARAM = "major";
+/** `view=available` opens the free-seat overview; `view=list` the seat list of a room. */
+const AVAILABLE_VIEW = "available";
 
 function roomIdFromUrl(): number | null {
   const value = Number(new URLSearchParams(window.location.search).get(ROOM_PARAM));
@@ -109,16 +111,18 @@ export function StudentPortal() {
   const [selectedItem, setSelectedItem] = useState<LayoutItem | null>(null);
   const [expandedListItemId, setExpandedListItemId] = useState<string | null>(null);
   const [majorFilter, setMajorFilter] = useState("");
-  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [form, setForm] = useState<StudentFormValues>(emptyStudentForm);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  // Students come to find a free seat, so the page opens on every free seat across rooms. A link
-  // naming a room (or the list view) opens that room instead.
-  const [browse, setBrowse] = useState<"rooms" | "vacancies">("vacancies");
+  // The page opens on the rooms; the free-seat overview across rooms is the second tab.
+  const [browse, setBrowse] = useState<"rooms" | "vacancies">("rooms");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // A seat chosen in the search: marked on the plan until another seat or room is chosen.
+  const [foundSeatId, setFoundSeatId] = useState<string | null>(null);
+  const revealSeat = useRef(false);
   const load = async () => {
     setLoading(true);
     setLoadError("");
@@ -127,9 +131,12 @@ export function StudentPortal() {
       const ordered = { ...next, rooms: sortRooms(next.rooms) };
       setData(ordered);
       setMajorFilter((current) => ordered.rooms.some((room) => room.major_names?.includes(current)) ? current : "");
+      // Without a room in the address, open the first room of the centre the address filters by.
+      const major = new URLSearchParams(window.location.search).get(MAJOR_PARAM);
       setSelectedRoomId((current) => {
         const wanted = current ?? roomIdFromUrl();
-        return ordered.rooms.some((room) => room.id === wanted) ? wanted : ordered.rooms[0]?.id ?? null;
+        return ordered.rooms.some((room) => room.id === wanted) ? wanted
+          : (ordered.rooms.find((room) => major && room.major_names?.includes(major)) ?? ordered.rooms[0])?.id ?? null;
       });
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "无法连接 DeskAtlas");
@@ -141,20 +148,20 @@ export function StudentPortal() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get(VIEW_PARAM) === "list") setView("list");
-    if (params.has(ROOM_PARAM) || params.has(VIEW_PARAM)) setBrowse("rooms");
+    if (params.get(VIEW_PARAM) === AVAILABLE_VIEW) setBrowse("vacancies");
     setMajorFilter(params.get(MAJOR_PARAM) ?? "");
     void load();
   }, []);
 
   // Keep the room, view and centre filter in the address bar, so a reload or a shared link
   // opens the same page. A centre no room belongs to is dropped once the rooms load. The free-seat
-  // overview is the page without a room.
+  // overview is `view=available`, without a room.
   useEffect(() => {
     // Wait for the rooms: until then the address still holds the room a shared link asked for.
     const rooms = browse === "rooms";
     if (!data || (rooms && selectedRoomId === null)) return;
     const url = new URL(window.location.href);
-    const wanted: Array<[string, string]> = [[ROOM_PARAM, rooms ? String(selectedRoomId) : ""], [VIEW_PARAM, rooms && view === "list" ? "list" : ""], [MAJOR_PARAM, majorFilter]];
+    const wanted: Array<[string, string]> = [[ROOM_PARAM, rooms ? String(selectedRoomId) : ""], [VIEW_PARAM, !rooms ? AVAILABLE_VIEW : view === "list" ? "list" : ""], [MAJOR_PARAM, majorFilter]];
     let changed = false;
     for (const [key, value] of wanted) {
       if ((url.searchParams.get(key) ?? "") === value) continue;
@@ -165,8 +172,20 @@ export function StudentPortal() {
   }, [data, browse, selectedRoomId, view, majorFilter]);
 
   useEffect(() => {
-    if (showRoom.current && !loading) { showRoom.current = false; const top = workspace.current?.getBoundingClientRect().top ?? 0; if (window.innerWidth <= 820 || top < 80) workspace.current?.scrollIntoView({ block: "start" }); }
+    if (showRoom.current && !loading) { showRoom.current = false; const top = workspace.current?.getBoundingClientRect().top ?? 0; if (window.innerWidth <= 820 || top < 64) workspace.current?.scrollIntoView({ block: "start" }); }
   }, [selectedRoomId, loading]);
+  // After a search, bring the chosen seat into view and give it focus, on the plan or in the list.
+  useEffect(() => {
+    if (!revealSeat.current || !foundSeatId || loading) return;
+    const frame = requestAnimationFrame(() => {
+      const node = workspace.current?.querySelector<HTMLElement | SVGElement>(`[data-seat-id="${CSS.escape(foundSeatId)}"]`);
+      if (!node) return;
+      revealSeat.current = false;
+      node.scrollIntoView({ block: "center" });
+      node.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [foundSeatId, selectedRoomId, view, browse, loading, paletteOpen]);
   const selectedRoom = data?.rooms.find((room) => room.id === selectedRoomId);
   const filteredRooms = (data?.rooms ?? []).filter((room) => !majorFilter || room.major_names?.includes(majorFilter));
   const changeMajor = (major: string) => {
@@ -176,22 +195,13 @@ export function StudentPortal() {
     }
     setSelectedItem(null);
     setExpandedListItemId(null);
-    setQuery("");
+   
   };
-  const seats = useMemo(
-    () =>
-      (selectedRoom?.items ?? [])
-        .filter((item) => item.type === "seat" && item.seat)
-        .filter((item) => {
-          if (!query.trim()) return true;
-          const text = `${item.label} ${item.seat?.occupant?.name ?? ""} ${item.seat?.occupant?.adviser ?? ""} ${item.seat?.occupant?.major ?? ""}`;
-          return text.toLowerCase().includes(query.trim().toLowerCase());
-        }),
-    [query, selectedRoom],
-  );
+  const seats = useMemo(() => (selectedRoom?.items ?? []).filter((item) => item.type === "seat" && item.seat), [selectedRoom]);
 
   const openSeat = (item: LayoutItem | null) => {
     setSelectedItem(item);
+    if (item) setFoundSeatId(null);
     setFormError("");
     setSubmitted(false);
     if (item?.seat?.display_state === "available") {
@@ -206,7 +216,35 @@ export function StudentPortal() {
   };
 
   const applyFrom = (room: Room, item: LayoutItem) => { setSelectedRoomId(room.id); openSeat(item); };
-  const openRoom = (room: Room) => { setSelectedRoomId(room.id); setBrowse("rooms"); setSelectedItem(null); setQuery(""); showRoom.current = true; };
+  const openRoom = (room: Room) => { setSelectedRoomId(room.id); setBrowse("rooms"); setSelectedItem(null); setFoundSeatId(null); showRoom.current = true; };
+
+  useCommandShortcut(!!data?.rooms.length, paletteOpen, setPaletteOpen);
+  // Search results open a room (and mark a seat in it). A centre filter that would hide the room is cleared.
+  const jumpTo = useCallback((room: Room, item?: LayoutItem) => {
+    setPaletteOpen(false);
+    setMajorFilter((current) => current && !room.major_names?.includes(current) ? "" : current);
+    setBrowse("rooms");
+    setSelectedRoomId(room.id);
+    setSelectedItem(null);
+    setPickerOpen(false);
+   
+    setExpandedListItemId(item?.id ?? null);
+    setFoundSeatId(item?.id ?? null);
+    revealSeat.current = !!item;
+    showRoom.current = !item;
+  }, []);
+  const jumpToMajor = useCallback((major: string) => {
+    setPaletteOpen(false);
+    setBrowse("rooms");
+    setMajorFilter(major);
+    setSelectedRoomId((current) => data?.rooms.find((room) => room.id === current)?.major_names?.includes(major) ? current : data?.rooms.find((room) => room.major_names?.includes(major))?.id ?? current);
+    setSelectedItem(null);
+    setExpandedListItemId(null);
+    setFoundSeatId(null);
+   
+    showRoom.current = true;
+  }, [data]);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
 
   const submitApplication = async (event: FormEvent) => {
     event.preventDefault();
@@ -234,7 +272,7 @@ export function StudentPortal() {
 
   return (
     <main className="student-shell">
-      <PublicHeader />
+      <PublicHeader onSearch={data?.rooms.length ? () => setPaletteOpen(true) : undefined} />
 
       <section className="hero-line">
         <div>
@@ -244,7 +282,6 @@ export function StudentPortal() {
           <div className="hero-metrics" aria-label="工位概况">
             <span><strong>{data.rooms.filter((room) => !room.is_virtual).length}</strong> 间实体房间</span>
             <span><strong>{data.rooms.filter((room) => !room.is_virtual).reduce((sum, room) => sum + room.items.filter((item) => item.type === "seat").length, 0)}</strong> 个工位</span>
-            <span className="vacancy-metric"><strong>{data.rooms.reduce((sum, room) => sum + (room.seat_counts.available ?? 0), 0)}</strong> 可申请</span>
           </div>
         )}
       </section>
@@ -262,24 +299,17 @@ export function StudentPortal() {
       ) : (
         <>
         <div className="segmented-control browse-switch" role="group" aria-label="浏览方式">
-          <button aria-pressed={browse === "vacancies"} onClick={() => setBrowse("vacancies")}>可申请的工位 <b>{data.rooms.reduce((sum, room) => sum + (room.is_virtual ? 0 : room.seat_counts.available ?? 0), 0)}</b></button>
           <button aria-pressed={browse === "rooms"} onClick={() => setBrowse("rooms")}>按房间浏览</button>
+          <button aria-pressed={browse === "vacancies"} onClick={() => setBrowse("vacancies")}>可申请的工位 <b>{data.rooms.reduce((sum, room) => sum + (room.is_virtual ? 0 : room.seat_counts.available ?? 0), 0)}</b></button>
         </div>
         {browse === "vacancies" ? <VacancyList rooms={data.rooms} majorFilter={majorFilter} onMajorChange={changeMajor} onApply={applyFrom} onOpenRoom={openRoom} /> :
         <div className="public-workspace">
-          <div className={`public-directory ${pickerOpen ? "open" : ""}`}><button className="public-directory-toggle" aria-label="切换房间" aria-expanded={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)}><span>当前{selectedRoom?.is_virtual ? "分组" : "房间"} · <strong>{selectedRoom?.name ?? "请选择"}</strong></span><small>{pickerOpen ? "收起" : "切换"}</small><ChevronDown size={16} /></button><RoomPicker rooms={filteredRooms} allRooms={data.rooms} selected={selectedRoom} majorFilter={majorFilter} onMajorChange={changeMajor} onSelect={(room, reveal = true) => { if (reveal) setPickerOpen(false); showRoom.current = reveal; setSelectedRoomId(room.id); setSelectedItem(null); setExpandedListItemId(null); setQuery(""); }} /></div>
+          <div className={`public-directory ${pickerOpen ? "open" : ""}`}><button className="public-directory-toggle" aria-label="切换房间" aria-expanded={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)}><span>当前{selectedRoom?.is_virtual ? "分组" : "房间"} · <strong>{selectedRoom?.name ?? "请选择"}</strong></span><small>{pickerOpen ? "收起" : "切换"}</small><ChevronDown size={16} /></button><RoomPicker rooms={filteredRooms} allRooms={data.rooms} selected={selectedRoom} majorFilter={majorFilter} onMajorChange={changeMajor} onSelect={(room, reveal = true) => { if (reveal) setPickerOpen(false); showRoom.current = reveal; setSelectedRoomId(room.id); setSelectedItem(null); setExpandedListItemId(null); setFoundSeatId(null); }} /></div>
           {selectedRoom && (
             <section ref={workspace} className="workspace-frame" id="workspace" aria-label={`${selectedRoom.name} 工位与人员`}>
               <div className="room-heading">
-                <div className="room-heading-title"><span className="room-number">{selectedRoom.name}</span><div><h2>{selectedRoom.is_virtual ? "人员分组" : "研究生办公室"}</h2>{!selectedRoom.is_virtual && <div className="room-major-tags" aria-label="房间所属教研中心"><MajorTags names={selectedRoom.major_names} /></div>}<p>{[selectedRoom.building, getFloorLabel(selectedRoom)].filter(Boolean).join(" · ")}<span> / </span>{selectedRoom.items.filter((item) => item.type === "seat").length} {selectedRoom.is_virtual ? "人" : "个工位"}</p></div></div>
-              </div>
-              <div className="workspace-toolbar">
-                <label className="search-field">
-                  <Search size={16} />
-                  <input aria-label="搜索当前房间工位" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、导师或座位号" />
-                  {query && <button aria-label="清空搜索" onClick={() => setQuery("")}><X size={14} /></button>}
-                </label>
-                <div className="segmented-control" aria-label="视图切换">
+                <div className="room-heading-title"><span className="room-number">{selectedRoom.name}</span><div>{selectedRoom.is_virtual && <h2>人员分组</h2>}{!selectedRoom.is_virtual && <div className="room-major-tags" aria-label="房间所属教研中心"><MajorTags names={selectedRoom.major_names} /></div>}<p>{[selectedRoom.building, getFloorLabel(selectedRoom)].filter(Boolean).join(" · ")}<span> / </span>{selectedRoom.items.filter((item) => item.type === "seat").length} {selectedRoom.is_virtual ? "人" : "个工位"}</p></div></div>
+                <div className="segmented-control room-view-switch" aria-label="视图切换">
                   <button aria-label={selectedRoom.is_virtual ? "位置图" : "平面图"} className={view === "map" ? "active" : ""} aria-pressed={view === "map"} onClick={() => setView("map")}><LayoutGrid size={16} /><span className="view-label">{selectedRoom.is_virtual ? "位置图" : "平面图"}</span></button>
                   <button aria-label="列表" className={view === "list" ? "active" : ""} aria-pressed={view === "list"} onClick={() => setView("list")}><List size={16} /><span className="view-label">列表</span></button>
                 </div>
@@ -291,11 +321,11 @@ export function StudentPortal() {
                 ))}
               </div>
 
-              {query.trim() && !seats.length ? <div className="search-empty" role="status"><Search size={24} /><h3>没有匹配结果</h3><p>在 {selectedRoom.name} 中未找到“{query}”。试试姓名、导师或座位号。</p><button className="secondary-action" onClick={() => setQuery("")}>清空搜索</button></div> : view === "map" ? (
+              {view === "map" ? (
                 <div className="public-plan-layout">
                   {selectedRoom.is_virtual
-                    ? <VirtualRoomPlan room={selectedRoom} majors={data.majors} query={query} onSelect={openSeat} selectedId={selectedItem?.id} />
-                    : <RoomPlan key={selectedRoom.id} room={selectedRoom} query={query} onSelect={openSeat} selectedId={selectedItem?.id} />}
+                    ? <VirtualRoomPlan room={selectedRoom} majors={data.majors} onSelect={openSeat} selectedId={selectedItem?.id ?? foundSeatId} />
+                    : <RoomPlan key={selectedRoom.id} room={selectedRoom} onSelect={openSeat} selectedId={selectedItem?.id ?? foundSeatId} />}
                 </div>
               ) : (
                 <div className="seat-table-wrap">
@@ -310,6 +340,7 @@ export function StudentPortal() {
                             <tr
                               className={`public-seat-row ${expanded ? "selected" : ""}`}
                               tabIndex={0}
+                              data-seat-id={item.id}
                               aria-expanded={expanded}
                               onClick={() => setExpandedListItemId(expanded ? null : item.id)}
                               onKeyDown={(event) => {
@@ -354,6 +385,8 @@ export function StudentPortal() {
         </>
       )}
 
+      {paletteOpen && data && <StudentSearch rooms={data.rooms} onSeat={jumpTo} onRoom={jumpTo} onMajor={jumpToMajor} onClose={closePalette} />}
+
       {view === "map" && selectedItem?.seat?.occupant && (
         <DetailDialog label={`${selectedItem.seat.occupant.name}的资料`} onClose={() => setSelectedItem(null)}>
           <StudentProfile person={selectedItem.seat.occupant}
@@ -364,7 +397,6 @@ export function StudentPortal() {
       {selectedItem?.seat && !selectedItem.seat.occupant && (
         <DetailDialog label={`${selectedRoom?.name} · 工位 ${selectedItem.label}`} onClose={() => setSelectedItem(null)} wide={selectedItem.seat.display_state === "available"}>
             <div className="drawer-heading">
-              <span className={`state-icon ${selectedItem.seat.display_state}`}>{selectedItem.label}</span>
               <div><p>{selectedRoom?.name}</p><h2>工位 {selectedItem.label}</h2></div>
             </div>
             {selectedItem.seat.display_state === "pending" ? (

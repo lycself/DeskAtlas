@@ -17,6 +17,7 @@ import {
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { modalOpen, useModalLayer } from "@/app/hooks/useModalLayer";
+import { useCommandShortcut } from "@/app/hooks/useCommandShortcut";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -31,7 +32,7 @@ const AdminRooms = dynamic(() => import("./admin/AdminRooms").then((module) => m
 const AdminSettings = dynamic(() => import("./admin/AdminSettings").then((module) => module.AdminSettings), { loading: () => <SectionPending /> });
 const AdminStudents = dynamic(() => import("./admin/AdminStudents").then((module) => module.AdminStudents), { loading: () => <SectionPending /> });
 import { Brand } from "./Brand";
-import { CommandPalette } from "./admin/CommandPalette";
+import { AdminCommandPalette } from "./admin/CommandPalette";
 import { ThemeToggle } from "./ThemeToggle";
 
 type Section = "overview" | "rooms" | "students" | "import" | "settings";
@@ -135,22 +136,7 @@ export function AdminPortal() {
     return () => cancelAnimationFrame(frame);
   }, [section, ready, currentLabel]);
 
-  useEffect(() => {
-    if (!ready) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.isComposing) return;
-      const typing = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']");
-      const shortcut = (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k";
-      const slash = event.key === "/" && !typing && !event.metaKey && !event.ctrlKey && !event.altKey;
-      if (!shortcut && !slash) return;
-      // Another dialog owns the keyboard while it is open.
-      if (!paletteOpen && modalOpen()) return;
-      event.preventDefault();
-      setPaletteOpen(shortcut ? !paletteOpen : true);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [ready, paletteOpen]);
+  useCommandShortcut(ready, paletteOpen, setPaletteOpen);
 
   const logout = async () => {
     try {
@@ -216,7 +202,7 @@ export function AdminPortal() {
         {visited.includes("settings") && <div data-section="settings" hidden={section !== "settings"}><AdminSettings active={section === "settings"} /></div>}
         </>}
       </section>
-      {paletteOpen && <CommandPalette pages={sections} onNavigate={openPage} onJump={openJump} onClose={() => setPaletteOpen(false)} />}
+      {paletteOpen && <AdminCommandPalette pages={sections} onNavigate={openPage} onJump={openJump} onClose={() => setPaletteOpen(false)} />}
     </main>
   );
 }

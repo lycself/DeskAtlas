@@ -23,8 +23,8 @@ function bounds(items: LayoutItem[]) {
     height: Math.max(...corners.map((p) => p.y)) - y + 34 };
 }
 
-export function RoomPlan({ room, query, onSelect, selectedId, choosingTarget = false }: {
-  room: Room; query: string; onSelect: (item: LayoutItem) => void; selectedId?: string | null; choosingTarget?: boolean;
+export function RoomPlan({ room, query = "", onSelect, selectedId, choosingTarget = false }: {
+  room: Room; query?: string; onSelect: (item: LayoutItem) => void; selectedId?: string | null; choosingTarget?: boolean;
 }) {
   const [zoom, setZoom] = useState(1);
   const [fit, setFit] = useState(true);
@@ -59,7 +59,8 @@ export function RoomPlan({ room, query, onSelect, selectedId, choosingTarget = f
       <svg className="plan-svg" role="group" aria-label={`${room.name} 房间平面图`}
         viewBox={`${frame.x} ${frame.y} ${frame.width} ${frame.height}`}
         style={fit
-          ? { width: "100%", height: "var(--plan-height)" }
+          // Fitted, the drawing takes the full width and its own proportions, up to the height the page allows.
+          ? { width: "100%", height: "auto", aspectRatio: `${frame.width} / ${frame.height}`, maxHeight: "var(--plan-height)" }
           : zoom < 1
             // Below the fitted size the drawing shrinks inside the viewport instead of being clamped to full width.
             ? { width: `${zoom * 100}%`, height: `calc(var(--plan-height) * ${zoom})` }
@@ -74,7 +75,7 @@ export function RoomPlan({ room, query, onSelect, selectedId, choosingTarget = f
           const seat = item.type === "seat";
           return <g key={item.id} transform={`translate(${item.x} ${item.y}) rotate(${item.rotation})`}
             className={`${seat ? `plan-seat ${state}` : `plan-fixture ${item.type}`} ${seat && (!matches(item) || choosingTarget && state !== "available") ? "dimmed" : ""} ${item.id === selectedId ? "selected-seat" : ""}`}
-            role={seat ? "button" : undefined} tabIndex={seat ? 0 : undefined}
+            role={seat ? "button" : undefined} tabIndex={seat ? 0 : undefined} data-seat-id={seat ? item.id : undefined}
             aria-label={seat ? `工位 ${item.label}，${occupant?.name ?? statusLabel[state]}` : item.label}
             aria-pressed={seat ? item.id === selectedId : undefined}
             onClick={seat ? () => onSelect(item) : undefined}
@@ -101,7 +102,7 @@ export function RoomPlan({ room, query, onSelect, selectedId, choosingTarget = f
       <header><strong>位置待核对</strong><span>{unplaced.length} 处 · 原表未提供唯一位置，暂列于此</span></header>
       <div>{unplaced.map((item) => item.type === "seat" ? <button key={item.id}
         className={`unplaced-seat ${item.seat?.display_state ?? "unavailable"} ${!matches(item) ? "dimmed" : ""} ${item.id === selectedId ? "selected-seat" : ""}`}
-        onClick={() => onSelect(item)}><b>{item.label}</b><span>{item.seat?.occupant?.name ?? statusLabel[item.seat?.display_state ?? "unavailable"]}</span></button>
+        data-seat-id={item.id} onClick={() => onSelect(item)}><b>{item.label}</b><span>{item.seat?.occupant?.name ?? statusLabel[item.seat?.display_state ?? "unavailable"]}</span></button>
         : <span className="unplaced-equipment" key={item.id}>{item.label}</span>)}</div>
     </section>}
     <footer className="plan-footer"><span>座位位置以房间内实际标识为准</span><span>{hasWalls ? "实测布局 · 非比例图" : "示意布局 · 位置待核对"}</span></footer>

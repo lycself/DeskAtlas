@@ -4,6 +4,7 @@ import { Archive, Check, CircleAlert, Copy, ExternalLink, FolderOpen, LockKeyhol
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { confirmDialog } from "@/app/components/ConfirmDialog";
+import { EditableForm } from "@/app/components/EditableForm";
 import { api } from "@/app/lib/api";
 import { Brand } from "./Brand";
 import { ThemeToggle } from "./ThemeToggle";
@@ -55,13 +56,16 @@ export function PanelApp() {
   const [clearUpdateToken, setClearUpdateToken] = useState(false);
   const [alidnsSecret, setAlidnsSecret] = useState("");
   const busyRef = useRef(false);
-  const formTouched = useRef(false);
+  // Text settings read as saved values until 编辑; while one form is being edited, refreshes leave the values alone.
+  const [editing, setEditingState] = useState<"" | "https" | "settings">("");
+  const editingRef = useRef<"" | "https" | "settings">("");
+  const setEditing = (next: "" | "https" | "settings") => { editingRef.current = next; setEditingState(next); };
 
   const refresh = useCallback(async () => {
     try {
       const next = await api<PanelState>("/api/panel/state");
       setState(next);
-      if (next.settings && !formTouched.current) setForm(next.settings);
+      if (next.settings && !editingRef.current) setForm(next.settings);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "无法连接本机服务");
     }
@@ -83,7 +87,7 @@ export function PanelApp() {
 
   const saveSettings = (changes: SettingsChanges, label = "save") => run(label, async () => {
     const result = await api<{ restarting?: boolean; url?: string; message?: string }>("/api/panel/settings", { method: "PUT", body: JSON.stringify(changes) });
-    formTouched.current = false;
+    if (label === "save" || label === "https-save") setEditing("");
     if (changes.update_token !== undefined) { setUpdateToken(""); setClearUpdateToken(false); }
     if (changes.alidns_secret !== undefined) setAlidnsSecret("");
     if (result.restarting && result.url) {
@@ -93,6 +97,11 @@ export function PanelApp() {
     }
     setMessage(result.message ?? "设置已保存");
   });
+
+  const cancelEdit = () => {
+    if (state?.settings) setForm(state.settings);
+    setAlidnsSecret(""); setUpdateToken(""); setClearUpdateToken(false); setEditing("");
+  };
 
   const submitForm = (event: FormEvent) => {
     event.preventDefault();
@@ -196,15 +205,15 @@ export function PanelApp() {
           <span className="switch"><input type="checkbox" disabled={!!busy} checked={form.https_enabled} onChange={(event) => void toggleHttps(event.target.checked)} /><i /></span>
         </label>
         {httpsStatus && <p className={`panel-https-status ${httpsStatus.tone}`}>{httpsStatus.tone === "ok" ? <LockKeyhole size={15} /> : httpsStatus.tone === "error" ? <CircleAlert size={15} /> : <RefreshCw size={15} />}{httpsStatus.text}</p>}
-        <form className="panel-form" onSubmit={submitHttps} onChange={() => { formTouched.current = true; }}>
+        <EditableForm className="panel-form" editing={editing === "https"} busy={busy === "https-save"} canEdit={!!state?.available && !editing && !busy}
+          onEdit={() => setEditing("https")} onCancel={cancelEdit} onSubmit={submitHttps} saveLabel="保存 HTTPS 设置">
           <label className="panel-field"><span>域名</span><input placeholder="例如 physdesk.cn" autoComplete="off" spellCheck={false} maxLength={260} value={form.https_domain} onChange={(event) => setForm({ ...form, https_domain: event.target.value })} /></label>
           <div className="panel-inline">
-            <label className="panel-field"><span>阿里云 AccessKey ID</span><input autoComplete="off" spellCheck={false} maxLength={128} value={form.alidns_key_id} onChange={(event) => setForm({ ...form, alidns_key_id: event.target.value })} /></label>
-            <label className="panel-field"><span>AccessKey Secret</span><input type="password" autoComplete="off" maxLength={128} placeholder={form.alidns_secret_configured ? "已配置，留空保留" : ""} value={alidnsSecret} onChange={(event) => setAlidnsSecret(event.target.value)} /></label>
+            <label className="panel-field"><span>阿里云 AccessKey ID</span><input autoComplete="off" spellCheck={false} maxLength={128} placeholder="以 LTAI 开头" value={form.alidns_key_id} onChange={(event) => setForm({ ...form, alidns_key_id: event.target.value })} /></label>
+            <label className="panel-field"><span>AccessKey Secret</span><input type="password" autoComplete="off" maxLength={128} placeholder={editing === "https" ? form.alidns_secret_configured ? "已配置，留空保留" : "" : form.alidns_secret_configured ? "已配置" : "未配置"} value={alidnsSecret} onChange={(event) => setAlidnsSecret(event.target.value)} /></label>
           </div>
           <p className="panel-notice">先在阿里云“云解析 DNS”把域名的 A 记录指向这台电脑的 IP{state?.addresses[0] ? `（${state.addresses[0].address}）` : ""}。AccessKey 只需授予 AliyunDNSFullAccess 权限，Secret 加密保存在本机。</p>
-          <button className="primary-action compact" disabled={!state?.available || !!busy}>{busy === "https-save" ? "正在保存…" : "保存 HTTPS 设置"}</button>
-        </form>
+        </EditableForm>
       </section>}
 
       <section className="panel-card card-surface">
@@ -234,18 +243,18 @@ export function PanelApp() {
             <div><strong>每日自动备份</strong><small>每天自动生成备份包并保留最近若干份。</small></div>
             <span className="switch"><input type="checkbox" disabled={!state?.available || !!busy} checked={form.auto_backup} onChange={(event) => toggle("auto_backup", event.target.checked)} /><i /></span>
           </label>
-          <form className="panel-form" onSubmit={submitForm} onChange={() => { formTouched.current = true; }}>
+          <EditableForm className="panel-form" editing={editing === "settings"} busy={busy === "save"} canEdit={!!state?.available && !editing && !busy}
+            onEdit={() => setEditing("settings")} onCancel={cancelEdit} onSubmit={submitForm} saveLabel="保存设置">
             <div className="panel-inline">
               <label className="panel-field"><span>服务端口</span><input type="number" min={1} max={65535} required value={form.port} onChange={(event) => setForm({ ...form, port: Number(event.target.value) })} /></label>
               <label className="panel-field"><span>自动备份保留份数</span><input type="number" min={1} max={365} required value={form.backup_keep} onChange={(event) => setForm({ ...form, backup_keep: Number(event.target.value) })} /></label>
             </div>
             <label className="panel-field"><span>对外显示地址（可选，例如固定 IP 或域名）</span><input placeholder="留空使用推荐地址" value={form.public_address} onChange={(event) => setForm({ ...form, public_address: event.target.value })} /></label>
             <label className="panel-field"><span>更新源地址</span><input placeholder="https://…/latest.json" value={form.update_url} onChange={(event) => setForm({ ...form, update_url: event.target.value })} /></label>
-            <label className="panel-field"><span>GitHub 更新 token（私有仓库）</span><input type="password" autoComplete="off" maxLength={500} disabled={!!busy || clearUpdateToken} placeholder={form.update_token_configured ? "已配置，留空保留现有 token" : "填写具有仓库 Contents 读取权限的 token"} value={updateToken} onChange={(event) => setUpdateToken(event.target.value)} /></label>
+            <label className="panel-field"><span>GitHub 更新 token（私有仓库）</span><input type="password" autoComplete="off" maxLength={500} disabled={!!busy || clearUpdateToken} placeholder={editing === "settings" ? form.update_token_configured ? "已配置，留空保留现有 token" : "填写具有仓库 Contents 读取权限的 token" : form.update_token_configured ? "已配置" : "未配置"} value={updateToken} onChange={(event) => setUpdateToken(event.target.value)} /></label>
             <p className="panel-notice">仅用于官方 GitHub 仓库更新，token 加密保存在本机。选择 DeskAtlas 仓库并授予 Contents 读取权限，保存后点击“检查更新”。</p>
-            {form.update_token_configured && <label className="check-control"><input type="checkbox" disabled={!!busy} checked={clearUpdateToken} onChange={(event) => setClearUpdateToken(event.target.checked)} /> 清除已保存的 token（保存后生效）</label>}
-            <button className="primary-action compact" disabled={!state?.available || !!busy}>{busy === "save" ? "正在保存…" : "保存设置"}</button>
-          </form>
+            {editing === "settings" && form.update_token_configured && <label className="check-control"><input type="checkbox" disabled={!!busy} checked={clearUpdateToken} onChange={(event) => setClearUpdateToken(event.target.checked)} /> 清除已保存的 token（保存后生效）</label>}
+          </EditableForm>
         </>}
       </section>
 

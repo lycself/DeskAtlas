@@ -7,6 +7,7 @@ import { api } from "@/app/lib/api";
 import type { Bootstrap, LayoutItem, Student } from "@/app/lib/types";
 import { StudentProfile } from "../StudentProfile";
 import { emptyStudentForm, StudentFormFields, type StudentFormValues } from "./StudentFormFields";
+import { EditableForm } from "@/app/components/EditableForm";
 
 type Props = {
   item: LayoutItem | null; roomName: string; virtual?: boolean; version: number;
@@ -32,6 +33,8 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
   const [candidate, setCandidate] = useState<Student | null>(null);
   const [status, setStatus] = useState("active");
   const [note, setNote] = useState("");
+  // Status and note read as saved values until 编辑.
+  const [statusEditing, setStatusEditing] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -40,7 +43,7 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
   }, []);
   useEffect(() => {
     setStudent(null); setPending(null); setEditing(false); setCreating(false); setCandidate(null); setQuery(""); setError("");
-    setStatus(item?.seat?.admin_status ?? "active"); setNote(item?.seat?.note ?? "");
+    setStatus(item?.seat?.admin_status ?? "active"); setNote(item?.seat?.note ?? ""); setStatusEditing(false);
     if (!item?.seat) { setLoading(false); return; }
     const controller = new AbortController();
     setLoading(true);
@@ -121,9 +124,12 @@ export function SeatStudentPanel({ item, roomName, virtual, version, moving, tar
                   {candidate && <div className="move-destination"><p>将 {candidate.name} 从 {candidate.current_assignment?.room_name ?? "未被分配"} 调整到 {roomName} · {item.label}。</p><button className="primary-action compact" onClick={() => move(candidate, item.seat!.id)}>确认分配</button></div>}
                   <button className="text-action" onClick={() => { setForm(emptyStudentForm); setCreating(true); }}><UserPlus />录入新学生</button>
                 </div> : <p className="panel-empty">此工位当前不可分配，可在下方调整使用状态。</p>}
-      {!moving && item?.seat && !loading && !virtual && !editing && !creating && <details className="panel-secondary"><summary>工位状态与备注</summary><form onSubmit={(event) => {
-        event.preventDefault(); void run(async () => { await api(`/api/admin/seats/${item.seat!.id}/status`, { method: "PATCH", body: JSON.stringify({ status, note: note.trim() || null }) }); });
-      }}><label><span>使用状态</span><Select value={status} onChange={(value) => { setStatus(value); onDirty(true); }} disabled={!!student || !!pending} options={[{ value: "active", label: "正常可用" }, { value: "reserved", label: "保留" }, { value: "maintenance", label: "维修" }, { value: "disabled", label: "停用" }]} /></label><label><span>备注</span><textarea rows={3} value={note} onChange={(e) => { setNote(e.target.value); onDirty(true); }} /></label><button type="submit">保存状态与备注</button></form></details>}
+      {!moving && item?.seat && !loading && !virtual && !editing && !creating && <details className="panel-secondary"><summary>工位状态与备注</summary><EditableForm
+        editing={statusEditing} busy={busy} onEdit={() => setStatusEditing(true)}
+        onCancel={() => { setStatus(item.seat!.admin_status ?? "active"); setNote(item.seat!.note ?? ""); setStatusEditing(false); onDirty(false); }}
+        onSubmit={() => void run(async () => { await api(`/api/admin/seats/${item.seat!.id}/status`, { method: "PATCH", body: JSON.stringify({ status, note: note.trim() || null }) }); setStatusEditing(false); })}
+        saveLabel="保存状态与备注"
+      ><label><span>使用状态</span><Select value={status} onChange={(value) => { setStatus(value); onDirty(true); }} disabled={!!student || !!pending} options={[{ value: "active", label: "正常可用" }, { value: "reserved", label: "保留" }, { value: "maintenance", label: "维修" }, { value: "disabled", label: "停用" }]} /></label><label><span>备注</span><textarea rows={3} value={note} onChange={(e) => { setNote(e.target.value); onDirty(true); }} /></label></EditableForm></details>}
     </fieldset>
     {busy && <p className="form-hint" role="status">正在保存…</p>}
   </aside>;

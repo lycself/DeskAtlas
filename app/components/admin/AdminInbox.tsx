@@ -11,6 +11,7 @@ import type { AdminJump, Application, Bootstrap, Room, Student } from "@/app/lib
 import { ApplicationReviewPanel } from "./ApplicationReviewPanel";
 import { applicationChecks, type Teacher } from "./application-checks";
 import { StudentFormFields, type StudentFormValues } from "./StudentFormFields";
+import { EditableForm } from "@/app/components/EditableForm";
 
 type Delivery = { id: number; recipient: string; subject: string; status: string; error?: string | null; attempt_count: number; last_attempt_at?: string | null; created_at: string };
 type Totals = Record<string, number>;
@@ -155,12 +156,11 @@ export function AdminInbox({ active, jump, onNavigate, onJump }: {
 }
 
 function StudentQuickFix({ student, options, onSaved, onOpen }: { student: Student; options: Bootstrap; onSaved: () => void; onOpen: () => void }) {
-  const [form, setForm] = useState<StudentFormValues>({
-    name: student.name, student_no: student.student_no ?? "", adviser: student.adviser ?? "", enrollment_year: student.enrollment_year ? String(student.enrollment_year) : "",
-    program_level: student.program_level ?? "", major_id: student.major_id ? String(student.major_id) : "", note: student.note ?? "",
-  });
+  const [form, setForm] = useState<StudentFormValues>(() => savedForm(student));
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
   const value = (text: string) => text.trim() || null;
+  const cancel = () => { setForm(savedForm(student)); setEditing(false); };
   const save = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true);
     try {
@@ -169,16 +169,25 @@ function StudentQuickFix({ student, options, onSaved, onOpen }: { student: Stude
         enrollment_year: form.enrollment_year ? Number(form.enrollment_year) : null, program_level: value(form.program_level),
         major_id: form.major_id ? Number(form.major_id) : null, note: value(form.note),
       }) });
-      toast(`${form.name} 的资料已保存`); onSaved();
+      toast(`${form.name} 的资料已保存`); setEditing(false); onSaved();
     } catch (caught) { toast(caught instanceof Error ? caught.message : "保存失败", "error"); }
     finally { setBusy(false); }
   };
   return (
-    <form className="review-panel" onSubmit={save}>
-      <header className="review-panel-head"><div><h2>{student.name}<small>{student.student_no || "无学号"}</small></h2><p>{student.current_assignment ? `${student.current_assignment.room_name} · 工位 ${student.current_assignment.seat_code}` : "未分配工位"} · 缺 {missingFields(student).join("、")}</p></div>
-        <button type="button" className="text-action" onClick={onOpen}>在名册中打开</button></header>
+    <EditableForm
+      className="review-panel" actionsClassName="review-panel-actions" editing={editing} busy={busy}
+      onEdit={() => setEditing(true)} onCancel={cancel} onSubmit={save} editLabel="补全资料" saveLabel="保存并处理下一个"
+      header={<header className="review-panel-head"><div><h2>{student.name}<small>{student.student_no || "无学号"}</small></h2><p>{student.current_assignment ? `${student.current_assignment.room_name} · 工位 ${student.current_assignment.seat_code}` : "未分配工位"} · 缺 {missingFields(student).join("、")}</p></div>
+        <button type="button" className="text-action" onClick={onOpen}>在名册中打开</button></header>}
+    >
       <div className="review-panel-edit"><StudentFormFields form={form} onChange={(patch) => setForm({ ...form, ...patch })} options={options} /></div>
-      <div className="review-panel-actions"><button className="primary-action" disabled={busy}>保存并处理下一个</button></div>
-    </form>
+    </EditableForm>
   );
+}
+
+function savedForm(student: Student): StudentFormValues {
+  return {
+    name: student.name, student_no: student.student_no ?? "", adviser: student.adviser ?? "", enrollment_year: student.enrollment_year ? String(student.enrollment_year) : "",
+    program_level: student.program_level ?? "", major_id: student.major_id ? String(student.major_id) : "", note: student.note ?? "",
+  };
 }

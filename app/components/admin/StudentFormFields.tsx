@@ -48,8 +48,8 @@ export function StudentFormFields({ form, onChange, options, required = false, a
   return (
     <>
       <div className="field-grid two">
-        <label><span>姓名</span><input required maxLength={80} value={form.name} onChange={(event) => onChange({ name: event.target.value })} /></label>
-        <label><span>学号</span><input required={required} value={form.student_no} onChange={(event) => onChange({ student_no: event.target.value })} /></label>
+        <label><span>姓名</span><input required maxLength={80} placeholder="学生姓名" value={form.name} onChange={(event) => onChange({ name: event.target.value })} /></label>
+        <label><span>学号</span><input required={required} placeholder="例如 19820261154243" value={form.student_no} onChange={(event) => onChange({ student_no: event.target.value })} /></label>
       </div>
       <label>
         <span>导师全名</span>

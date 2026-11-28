@@ -1,7 +1,7 @@
 import type { LayoutItem, Major, Room } from "@/app/lib/types";
 
-export function VirtualRoomPlan({ room, majors, query, onSelect, selectedId, context = "student" }: {
-  room: Room; majors: Major[]; query: string; onSelect: (item: LayoutItem) => void; selectedId?: string | null;
+export function VirtualRoomPlan({ room, majors, query = "", onSelect, selectedId, context = "student" }: {
+  room: Room; majors: Major[]; query?: string; onSelect: (item: LayoutItem) => void; selectedId?: string | null;
   context?: "student" | "admin";
 }) {
   const normalized = query.trim().toLowerCase();
@@ -21,7 +21,7 @@ export function VirtualRoomPlan({ room, majors, query, onSelect, selectedId, con
       <h3>{group}<small>{items.length} 人</small></h3>
       <div className="virtual-position-grid">{items.length ? items.map((item) => <button type="button" key={item.id}
         className={`virtual-position ${selectedId === item.id ? "selected" : ""}`}
-        aria-pressed={selectedId === item.id} onClick={() => onSelect(item)}>
+        aria-pressed={selectedId === item.id} data-seat-id={item.id} onClick={() => onSelect(item)}>
         <small>{item.seat!.occupant!.program_level || "人员资料"}</small>
         <strong>{item.seat!.occupant!.name}</strong>
         <span>{item.seat!.occupant!.adviser ? `导师：${item.seat!.occupant!.adviser}` : "导师未设置"}</span>

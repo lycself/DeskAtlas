@@ -1,23 +1,24 @@
 "use client";
 
-import { ArrowRight, LockKeyhole } from "lucide-react";
+import { ArrowRight, LockKeyhole, Search } from "lucide-react";
 import Link from "next/link";
-import { useSpringHeader } from "@/app/hooks/useSpringHeader";
 import { Brand } from "./Brand";
 import { ThemeToggle } from "./ThemeToggle";
 
-export function PublicHeader() {
-  const headerRef = useSpringHeader();
-
-  return <div className="public-header-wrapper">
-    <header className="topbar" ref={headerRef}>
-      <span className="nav-glass" aria-hidden="true" />
+/** The student page's bar: fixed to the top and always the same shape. `onSearch` is absent until there are rooms to search. */
+export function PublicHeader({ onSearch }: { onSearch?: () => void }) {
+  return <header className="topbar">
+    <div className="topbar-inner">
       <Brand />
       <div className="topbar-actions">
+        <button className="command-trigger" disabled={!onSearch} onClick={onSearch} aria-label="搜索工位" aria-keyshortcuts="Meta+K Control+K" title="搜索工位">
+          {/* Server-rendered, so the platform hint is picked by CSS from the pre-paint <html data-platform>. */}
+          <Search /><span>搜索房间、工位、姓名</span><kbd className="kbd-mac">⌘K</kbd><kbd className="kbd-other">Ctrl K</kbd>
+        </button>
         <span className="privacy-note"><LockKeyhole size={14} />校内访问</span>
         <ThemeToggle />
         <Link className="text-link" href="/admin/login">管理入口 <ArrowRight size={15} /></Link>
       </div>
-    </header>
-  </div>;
+    </div>
+  </header>;
 }

@@ -68,7 +68,7 @@ export function ApplicationReviewPanel({ application, options, rooms, teachers, 
         <button className="text-action" onClick={() => setShowMap(!showMap)}><MapPin size={15} />{showMap ? "收起平面图" : "在平面图中查看"}</button>
       </header>
 
-      {showMap && room && <div className="review-panel-map"><RoomPlan room={room} query="" onSelect={() => undefined} selectedId={application.seat.id} /></div>}
+      {showMap && room && <div className="review-panel-map"><RoomPlan room={room} onSelect={() => undefined} selectedId={application.seat.id} /></div>}
 
       {editing ? (
         <div className="review-panel-edit">
